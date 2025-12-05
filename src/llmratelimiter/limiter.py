@@ -162,7 +162,7 @@ class RateLimiter:
         """
 
         async def do_adjust() -> None:
-            result = await self.redis.eval(
+            result = await self.redis.eval(  # type: ignore[misc]
                 self._adjust_script,
                 1,
                 self.consumption_key,
@@ -191,7 +191,7 @@ class RateLimiter:
         current_time = time.time()
 
         async def do_get_status() -> tuple[int, int, int, int]:
-            result = await self.redis.eval(
+            result = await self.redis.eval(  # type: ignore[misc]
                 self._status_script,
                 1,
                 self.consumption_key,
@@ -251,7 +251,7 @@ class RateLimiter:
         record_id = str(uuid.uuid4())
 
         async def do_acquire() -> tuple[float, int, str, float]:
-            result = await self.redis.eval(
+            result = await self.redis.eval(  # type: ignore[misc]
                 self._acquire_script,
                 1,  # number of keys
                 self.consumption_key,
