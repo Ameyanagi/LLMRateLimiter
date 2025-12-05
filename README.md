@@ -18,6 +18,35 @@ Client-side rate limiting for LLM API calls using Redis-backed FIFO queues.
 - **Automatic Retry**: Exponential backoff with jitter for Redis connection issues
 - **Graceful Degradation**: Allows requests through on Redis failure
 
+## How It Works
+
+```mermaid
+flowchart LR
+    subgraph Client["Your Application"]
+        App[LLM App]
+    end
+
+    subgraph RL["LLMRateLimiter"]
+        Limiter[RateLimiter]
+    end
+
+    subgraph Redis["Redis"]
+        Queue[(FIFO Queue<br/>Sorted Set)]
+    end
+
+    subgraph LLM["LLM Provider"]
+        API[API]
+    end
+
+    App -->|1. acquire| Limiter
+    Limiter -->|2. Check limits| Queue
+    Queue -->|3. Wait time| Limiter
+    Limiter -->|4. Return| App
+    App -->|5. Call API| API
+```
+
+The rate limiter uses Redis sorted sets to maintain a FIFO queue of requests. Each request records its token consumption, and the Lua script atomically calculates when capacity will be available based on the sliding window.
+
 ## Installation
 
 ```bash

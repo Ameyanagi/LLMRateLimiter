@@ -232,3 +232,192 @@ print(f"Queue depth: {status.queue_depth}")
 | `password` | str | None | Redis password |
 | `max_connections` | int | 10 | Connection pool size |
 | `retry_config` | RetryConfig | RetryConfig() | Retry configuration |
+
+## How It Works
+
+This section explains the internal architecture and algorithms used by LLMRateLimiter.
+
+### Architecture Overview
+
+```mermaid
+flowchart TB
+    subgraph Client["Client Application"]
+        App[Your LLM App]
+    end
+
+    subgraph RateLimiter["LLMRateLimiter"]
+        RL[RateLimiter]
+        Config[RateLimitConfig]
+        CM[RedisConnectionManager]
+        Retry[RetryConfig]
+    end
+
+    subgraph Redis["Redis Server"]
+        SortedSet[(Sorted Set<br/>consumption records)]
+        Lua[Lua Scripts<br/>Atomic Operations]
+    end
+
+    subgraph LLM["LLM Provider"]
+        API[OpenAI / Anthropic / Vertex AI]
+    end
+
+    App --> |1. acquire<br/>tokens| RL
+    RL --> |2. Execute Lua| Redis
+    Redis --> |3. Wait time| RL
+    RL --> |4. Sleep if needed| RL
+    RL --> |5. Return| App
+    App --> |6. API call| API
+    API --> |7. Response| App
+    App --> |8. adjust<br/>optional| RL
+
+    Config --> RL
+    CM --> RL
+    Retry --> CM
+```
+
+### Acquire Flow
+
+When you call `acquire()`, the following happens atomically in Redis:
+
+```mermaid
+flowchart TD
+    Start([acquire called]) --> Validate{Validate<br/>parameters}
+    Validate --> |Invalid| Error[Raise ValueError]
+    Validate --> |Valid| ExecLua[Execute Lua Script<br/>Atomically in Redis]
+
+    subgraph Lua["Lua Script - Atomic Operation"]
+        Clean[1. Clean expired records<br/>older than window]
+        Clean --> Scan[2. Scan all active records<br/>sum tokens & requests]
+        Scan --> Check{3. Check all limits<br/>TPM, Input, Output, RPM}
+        Check --> |Under limits| FIFO[4. Assign slot after<br/>last request + ε]
+        Check --> |Over any limit| FindSlot[4. Find when enough<br/>capacity frees up]
+        FindSlot --> FIFO2[5. Assign slot at<br/>expiry time + ε]
+        FIFO --> Record[6. Store consumption<br/>record in sorted set]
+        FIFO2 --> Record
+        Record --> Return[7. Return slot_time,<br/>wait_time, queue_pos]
+    end
+
+    ExecLua --> Lua
+    Return --> WaitCheck{wait_time > 0?}
+    WaitCheck --> |Yes| Sleep[asyncio.sleep<br/>wait_time]
+    WaitCheck --> |No| Done
+    Sleep --> Done([Return AcquireResult])
+```
+
+### Sliding Window with FIFO Queue
+
+The rate limiter maintains a sliding window of requests. Past requests count toward the limit, and future requests are queued:
+
+```mermaid
+flowchart LR
+    subgraph Window["60-second Sliding Window"]
+        direction TB
+
+        subgraph Past["Past Records (counting)"]
+            R1["Request 1<br/>1000 tokens<br/>t=0s"]
+            R2["Request 2<br/>2000 tokens<br/>t=5s"]
+            R3["Request 3<br/>1500 tokens<br/>t=15s"]
+        end
+
+        subgraph Now["Current Time t=30s"]
+            Current((NOW))
+        end
+
+        subgraph Future["Future Slots (queued)"]
+            R4["Request 4<br/>3000 tokens<br/>t=35s"]
+            R5["Request 5<br/>2500 tokens<br/>t=40s"]
+        end
+    end
+
+    subgraph Expired["Expired (removed)"]
+        Old["Old requests<br/>before t=-30s"]
+    end
+
+    Old -.-> |Cleanup| Past
+    Past --> Current
+    Current --> Future
+```
+
+### Rate Limit Modes Comparison
+
+```mermaid
+flowchart TB
+    subgraph Combined["Combined Mode (OpenAI/Anthropic)"]
+        C_Config["RateLimitConfig(<br/>tpm=100_000,<br/>rpm=100)"]
+        C_Acquire["acquire(tokens=5000)"]
+        C_Check["Check: tokens ≤ TPM limit"]
+    end
+
+    subgraph Split["Split Mode (Vertex AI)"]
+        S_Config["RateLimitConfig(<br/>input_tpm=4_000_000,<br/>output_tpm=128_000,<br/>rpm=360)"]
+        S_Acquire["acquire(<br/>input_tokens=5000,<br/>output_tokens=2048)"]
+        S_Check["Check: input ≤ input_limit<br/>AND output ≤ output_limit"]
+        S_Adjust["adjust(record_id,<br/>actual_output=1500)"]
+    end
+
+    subgraph Mixed["Mixed Mode"]
+        M_Config["RateLimitConfig(<br/>tpm=500_000,<br/>input_tpm=4_000_000,<br/>output_tpm=128_000)"]
+        M_Check["Check ALL limits<br/>independently"]
+    end
+
+    C_Config --> C_Acquire --> C_Check
+    S_Config --> S_Acquire --> S_Check --> S_Adjust
+    M_Config --> M_Check
+```
+
+### Retry with Exponential Backoff
+
+When Redis operations fail, the connection manager retries with exponential backoff:
+
+```mermaid
+flowchart TD
+    Start([Redis Operation]) --> Try{Try Operation}
+    Try --> |Success| Done([Return Result])
+    Try --> |Retryable Error<br/>Connection/Timeout| Retry{Retries<br/>remaining?}
+    Try --> |Non-retryable<br/>Auth/Script Error| Fail([Raise Immediately])
+
+    Retry --> |Yes| Delay["Calculate Delay<br/>base × 2^attempt<br/>+ jitter"]
+    Retry --> |No| Degrade(["Graceful Degradation<br/>Allow Request Through"])
+
+    Delay --> Sleep[Sleep delay seconds]
+    Sleep --> Try
+
+    subgraph Delays["Exponential Backoff Example"]
+        D0["Attempt 0: 0.1s"]
+        D1["Attempt 1: 0.2s"]
+        D2["Attempt 2: 0.4s"]
+        D3["Attempt 3: 0.8s"]
+        D0 --> D1 --> D2 --> D3
+    end
+```
+
+### Capacity Calculation
+
+The Lua script calculates whether capacity is available by checking all configured limits:
+
+```mermaid
+flowchart TD
+    subgraph Input["New Request"]
+        Req["input: 5000 tokens<br/>output: 2000 tokens"]
+    end
+
+    subgraph Current["Current Window State"]
+        State["Combined: 80,000 / 100,000<br/>Input: 50,000 / unlimited<br/>Output: 30,000 / 50,000<br/>Requests: 80 / 100"]
+    end
+
+    subgraph Calc["Capacity Needed"]
+        Combined["Combined needed:<br/>7000 - (100k - 80k) = -13k ✓"]
+        Output["Output needed:<br/>2000 - (50k - 30k) = -18k ✓"]
+        RPM["RPM needed:<br/>1 - (100 - 80) = -19 ✓"]
+    end
+
+    subgraph Result["Result"]
+        Immediate["All negative = Under limits<br/>→ Immediate slot (no wait)"]
+    end
+
+    Input --> Calc
+    Current --> Calc
+    Calc --> Result
+```
+
+If any capacity check is positive (over limit), the script finds the earliest time when enough records expire to free up the required capacity.
