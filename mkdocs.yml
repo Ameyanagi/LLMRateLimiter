@@ -1,0 +1,52 @@
+site_name: LLMRateLimiter
+repo_url: https://github.com/Ameyanagi/LLMRateLimiter
+site_url: https://Ameyanagi.github.io/LLMRateLimiter
+site_description: Rate limiter for LLM
+site_author: Ameyanagi
+edit_uri: edit/main/docs/
+repo_name: Ameyanagi/LLMRateLimiter
+copyright: Maintained by <a href="https://Ameyanagi.com">Ameyanagi</a>.
+
+nav:
+  - Home: index.md
+  - Modules: modules.md
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: ["src/llmratelimiter"]
+theme:
+  name: material
+  feature:
+    tabs: true
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: white
+      accent: deep orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: deep orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Ameyanagi/LLMRateLimiter
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/LLMRateLimiter
+
+markdown_extensions:
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
