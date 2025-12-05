@@ -11,6 +11,7 @@ nav:
   - Home: index.md
   - Usage Guide: usage.md
   - API Reference: api.md
+  - Test Documentation: tests.md
 
 plugins:
   - search
