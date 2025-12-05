@@ -213,3 +213,10 @@ __marimo__/
 # Skip reference related code
 reference_code/
 
+# Skip specs
+openspec/
+.agent/
+.claude/
+.serena/
+AGENTS.md
+CLAUDE.md

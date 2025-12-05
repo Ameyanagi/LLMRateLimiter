@@ -3,72 +3,111 @@
 [![Release](https://img.shields.io/github/v/release/Ameyanagi/LLMRateLimiter)](https://img.shields.io/github/v/release/Ameyanagi/LLMRateLimiter)
 [![Build status](https://img.shields.io/github/actions/workflow/status/Ameyanagi/LLMRateLimiter/main.yml?branch=main)](https://github.com/Ameyanagi/LLMRateLimiter/actions/workflows/main.yml?query=branch%3Amain)
 [![codecov](https://codecov.io/gh/Ameyanagi/LLMRateLimiter/branch/main/graph/badge.svg)](https://codecov.io/gh/Ameyanagi/LLMRateLimiter)
-[![Commit activity](https://img.shields.io/github/commit-activity/m/Ameyanagi/LLMRateLimiter)](https://img.shields.io/github/commit-activity/m/Ameyanagi/LLMRateLimiter)
 [![License](https://img.shields.io/github/license/Ameyanagi/LLMRateLimiter)](https://img.shields.io/github/license/Ameyanagi/LLMRateLimiter)
 
-Rate limiter for LLM
+Client-side rate limiting for LLM API calls using Redis-backed FIFO queues.
 
-- **Github repository**: <https://github.com/Ameyanagi/LLMRateLimiter/>
-- **Documentation** <https://Ameyanagi.github.io/LLMRateLimiter/>
+- **Documentation**: <https://Ameyanagi.github.io/LLMRateLimiter/>
+- **Repository**: <https://github.com/Ameyanagi/LLMRateLimiter/>
 
-## Getting started with your project
+## Features
 
-### 1. Create a New Repository
+- **FIFO Queue-Based**: Fair ordering prevents thundering herd problems
+- **Distributed**: Redis-backed for multi-process/multi-server deployments
+- **Flexible Limits**: Supports combined TPM, split input/output TPM, or both
+- **Automatic Retry**: Exponential backoff with jitter for Redis connection issues
+- **Graceful Degradation**: Allows requests through on Redis failure
 
-First, create a repository on GitHub with the same name as this project, and then run the following commands:
-
-```bash
-git init -b main
-git add .
-git commit -m "init commit"
-git remote add origin git@github.com:Ameyanagi/LLMRateLimiter.git
-git push -u origin main
-```
-
-### 2. Set Up Your Development Environment
-
-Then, install the environment and the pre-commit hooks with
+## Installation
 
 ```bash
-make install
+pip install llmratelimiter
 ```
 
-This will also generate your `uv.lock` file
-
-### 3. Run the pre-commit hooks
-
-Initially, the CI/CD pipeline might be failing due to formatting issues. To resolve those run:
+Or with uv:
 
 ```bash
-uv run pre-commit run -a
+uv add llmratelimiter
 ```
 
-### 4. Commit the changes
+## Quick Start
 
-Lastly, commit the changes made by the two steps above to your repository.
+### Combined Mode (OpenAI/Anthropic)
 
-```bash
-git add .
-git commit -m 'Fix formatting issues'
-git push origin main
+For providers with a single tokens-per-minute limit:
+
+```python
+from redis.asyncio import Redis
+from llmratelimiter import RateLimiter, RateLimitConfig
+
+redis = Redis(host="localhost", port=6379)
+config = RateLimitConfig(tpm=100_000, rpm=100)
+limiter = RateLimiter(redis, "gpt-4", config)
+
+# Acquire capacity before making API call
+await limiter.acquire(tokens=5000)
+response = await openai.chat.completions.create(...)
 ```
 
-You are now ready to start development on your project!
-The CI/CD pipeline will be triggered when you open a pull request, merge to main, or when you create a new release.
+### Split Mode (GCP Vertex AI)
 
-To finalize the set-up for publishing to PyPI, see [here](https://fpgmaas.github.io/cookiecutter-uv/features/publishing/#set-up-for-pypi).
-For activating the automatic documentation with MkDocs, see [here](https://fpgmaas.github.io/cookiecutter-uv/features/mkdocs/#enabling-the-documentation-on-github).
-To enable the code coverage reports, see [here](https://fpgmaas.github.io/cookiecutter-uv/features/codecov/).
+For providers with separate input/output token limits:
 
-## Releasing a new version
+```python
+config = RateLimitConfig(input_tpm=4_000_000, output_tpm=128_000, rpm=360)
+limiter = RateLimiter(redis, "gemini-1.5-pro", config)
 
-- Create an API Token on [PyPI](https://pypi.org/).
-- Add the API Token to your projects secrets with the name `PYPI_TOKEN` by visiting [this page](https://github.com/Ameyanagi/LLMRateLimiter/settings/secrets/actions/new).
-- Create a [new release](https://github.com/Ameyanagi/LLMRateLimiter/releases/new) on Github.
-- Create a new tag in the form `*.*.*`.
+# Estimate output tokens upfront
+result = await limiter.acquire(input_tokens=5000, output_tokens=2048)
+response = await vertex_ai.generate(...)
 
-For more details, see [here](https://fpgmaas.github.io/cookiecutter-uv/features/cicd/#how-to-trigger-a-release).
+# Adjust after getting actual output
+await limiter.adjust(result.record_id, actual_output=response.output_tokens)
+```
 
----
+### With Connection Manager
 
-Repository initiated with [fpgmaas/cookiecutter-uv](https://github.com/fpgmaas/cookiecutter-uv).
+For production use with automatic retry:
+
+```python
+from llmratelimiter import (
+    RateLimiter, RateLimitConfig, RedisConnectionManager, RetryConfig
+)
+
+manager = RedisConnectionManager(
+    host="localhost",
+    port=6379,
+    retry_config=RetryConfig(max_retries=3, base_delay=0.1),
+)
+config = RateLimitConfig(tpm=100_000, rpm=100)
+limiter = RateLimiter(manager, "gpt-4", config)
+
+await limiter.acquire(tokens=5000)
+```
+
+## Configuration Options
+
+### RateLimitConfig
+
+| Parameter | Description |
+|-----------|-------------|
+| `tpm` | Combined tokens-per-minute limit |
+| `input_tpm` | Input tokens-per-minute limit |
+| `output_tpm` | Output tokens-per-minute limit |
+| `rpm` | Requests-per-minute limit |
+| `window_seconds` | Sliding window size (default: 60) |
+| `burst_multiplier` | Allow burst above limits (default: 1.0) |
+
+### RetryConfig
+
+| Parameter | Description |
+|-----------|-------------|
+| `max_retries` | Maximum retry attempts (default: 3) |
+| `base_delay` | Initial delay in seconds (default: 0.1) |
+| `max_delay` | Maximum delay cap (default: 5.0) |
+| `exponential_base` | Backoff multiplier (default: 2.0) |
+| `jitter` | Random variation 0-1 (default: 0.1) |
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.

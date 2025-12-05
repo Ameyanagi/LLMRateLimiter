@@ -1,7 +1,7 @@
 site_name: LLMRateLimiter
 repo_url: https://github.com/Ameyanagi/LLMRateLimiter
 site_url: https://Ameyanagi.github.io/LLMRateLimiter
-site_description: Rate limiter for LLM
+site_description: Client-side rate limiting for LLM API calls using Redis-backed FIFO queues
 site_author: Ameyanagi
 edit_uri: edit/main/docs/
 repo_name: Ameyanagi/LLMRateLimiter
@@ -9,13 +9,20 @@ copyright: Maintained by <a href="https://Ameyanagi.com">Ameyanagi</a>.
 
 nav:
   - Home: index.md
-  - Modules: modules.md
+  - Usage Guide: usage.md
+  - API Reference: api.md
+
 plugins:
   - search
   - mkdocstrings:
       handlers:
         python:
-          paths: ["src/llmratelimiter"]
+          paths: ["src"]
+          options:
+            docstring_style: google
+            show_signature_annotations: true
+            separate_signature: true
+
 theme:
   name: material
   feature:
@@ -50,3 +57,10 @@ markdown_extensions:
       permalink: true
   - pymdownx.arithmatex:
       generic: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
