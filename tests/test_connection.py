@@ -7,8 +7,12 @@ import pytest
 from redis.exceptions import (
     AuthenticationError,
     BusyLoadingError,
-    ConnectionError as RedisConnectionError,
     ResponseError,
+)
+from redis.exceptions import (
+    ConnectionError as RedisConnectionError,
+)
+from redis.exceptions import (
     TimeoutError as RedisTimeoutError,
 )
 
@@ -91,7 +95,7 @@ class TestRetryConfig:
         """Config should be immutable."""
         config = RetryConfig()
         with pytest.raises(AttributeError):
-            config.max_retries = 10  # type: ignore
+            config.max_retries = 10  # type: ignore[misc]
 
 
 class TestCalculateDelay:

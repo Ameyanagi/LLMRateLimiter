@@ -44,15 +44,12 @@ from llmratelimiter.limiter import RateLimiter
 from llmratelimiter.models import AcquireResult, RateLimitStatus
 
 __all__ = [
-    # Main classes
-    "RateLimiter",
+    "AcquireResult",
     "RateLimitConfig",
-    # Connection management
+    "RateLimitStatus",
+    "RateLimiter",
     "RedisConnectionManager",
     "RetryConfig",
-    # Result types
-    "AcquireResult",
-    "RateLimitStatus",
 ]
 
 __version__ = "0.1.0"

@@ -105,9 +105,7 @@ class RateLimiter:
         ...
 
     @overload
-    async def acquire(
-        self, *, input_tokens: int, output_tokens: int = 0
-    ) -> AcquireResult:
+    async def acquire(self, *, input_tokens: int, output_tokens: int = 0) -> AcquireResult:
         """Acquire for split/mixed mode."""
         ...
 
@@ -209,8 +207,8 @@ class RateLimiter:
 
         try:
             if self._retry_config is not None:
-                total_input, total_output, total_requests, queue_depth = (
-                    await retry_with_backoff(do_get_status, self._retry_config, "get_status")
+                total_input, total_output, total_requests, queue_depth = await retry_with_backoff(
+                    do_get_status, self._retry_config, "get_status"
                 )
             else:
                 total_input, total_output, total_requests, queue_depth = await do_get_status()
@@ -259,10 +257,10 @@ class RateLimiter:
                 self.consumption_key,
                 input_tokens,
                 output_tokens,
-                self.tpm_limit,          # combined limit (0 = disabled)
-                self.input_tpm_limit,    # input limit (0 = disabled)
-                self.output_tpm_limit,   # output limit (0 = disabled)
-                self.rpm_limit,          # request limit (0 = disabled)
+                self.tpm_limit,  # combined limit (0 = disabled)
+                self.input_tpm_limit,  # input limit (0 = disabled)
+                self.output_tpm_limit,  # output limit (0 = disabled)
+                self.rpm_limit,  # request limit (0 = disabled)
                 self.window_seconds,
                 current_time,
                 record_id,
@@ -276,8 +274,8 @@ class RateLimiter:
 
         try:
             if self._retry_config is not None:
-                slot_time, queue_position, returned_record_id, wait_time = (
-                    await retry_with_backoff(do_acquire, self._retry_config, "acquire")
+                slot_time, queue_position, returned_record_id, wait_time = await retry_with_backoff(
+                    do_acquire, self._retry_config, "acquire"
                 )
             else:
                 slot_time, queue_position, returned_record_id, wait_time = await do_acquire()

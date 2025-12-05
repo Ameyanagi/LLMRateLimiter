@@ -11,7 +11,7 @@ from collections.abc import AsyncIterator
 import pytest
 from redis.asyncio import Redis
 
-from llmratelimiter import RateLimiter, RateLimitConfig
+from llmratelimiter import RateLimitConfig, RateLimiter
 from llmratelimiter.config import RetryConfig
 from llmratelimiter.connection import RedisConnectionManager
 
@@ -48,9 +48,7 @@ class TestCombinedModeIntegration:
     """Integration tests for combined mode (tpm > 0)."""
 
     @pytest.mark.asyncio
-    async def test_immediate_acquire_under_limits(
-        self, redis_client: Redis
-    ) -> None:
+    async def test_immediate_acquire_under_limits(self, redis_client: Redis) -> None:
         """Requests under limits should be immediate."""
         config = RateLimitConfig(tpm=100_000, rpm=100)
         limiter = RateLimiter(redis_client, "test-model", config)
@@ -61,9 +59,7 @@ class TestCombinedModeIntegration:
         assert result.queue_position == 0
 
     @pytest.mark.asyncio
-    async def test_multiple_requests_increment_usage(
-        self, redis_client: Redis
-    ) -> None:
+    async def test_multiple_requests_increment_usage(self, redis_client: Redis) -> None:
         """Multiple requests should accumulate usage."""
         config = RateLimitConfig(tpm=100_000, rpm=100)
         limiter = RateLimiter(redis_client, "test-model-usage", config)
@@ -113,9 +109,7 @@ class TestCombinedModeIntegration:
         assert result.wait_time > 0
 
     @pytest.mark.asyncio
-    async def test_capacity_freed_after_window(
-        self, redis_client: Redis
-    ) -> None:
+    async def test_capacity_freed_after_window(self, redis_client: Redis) -> None:
         """Capacity should be freed after window expires."""
         config = RateLimitConfig(tpm=10_000, rpm=100, window_seconds=1)
         limiter = RateLimiter(redis_client, "test-model-expiry", config)
@@ -162,9 +156,7 @@ class TestSplitModeIntegration:
     """Integration tests for split mode (input_tpm/output_tpm > 0)."""
 
     @pytest.mark.asyncio
-    async def test_immediate_acquire_under_all_limits(
-        self, redis_client: Redis
-    ) -> None:
+    async def test_immediate_acquire_under_all_limits(self, redis_client: Redis) -> None:
         """Requests under all limits should be immediate."""
         config = RateLimitConfig(input_tpm=4_000_000, output_tpm=128_000, rpm=360)
         limiter = RateLimiter(redis_client, "gemini-test", config)
@@ -175,13 +167,9 @@ class TestSplitModeIntegration:
         assert result.queue_position == 0
 
     @pytest.mark.asyncio
-    async def test_output_tpm_limit_causes_wait(
-        self, redis_client: Redis
-    ) -> None:
+    async def test_output_tpm_limit_causes_wait(self, redis_client: Redis) -> None:
         """Exceeding output TPM limit should cause wait."""
-        config = RateLimitConfig(
-            input_tpm=1_000_000, output_tpm=10_000, rpm=100, window_seconds=1
-        )
+        config = RateLimitConfig(input_tpm=1_000_000, output_tpm=10_000, rpm=100, window_seconds=1)
         limiter = RateLimiter(redis_client, "gemini-output", config)
 
         # Consume most of output limit
@@ -231,14 +219,10 @@ class TestMixedModeIntegration:
     """Integration tests for mixed mode (tpm + input_tpm + output_tpm)."""
 
     @pytest.mark.asyncio
-    async def test_mixed_mode_all_limits_enforced(
-        self, redis_client: Redis
-    ) -> None:
+    async def test_mixed_mode_all_limits_enforced(self, redis_client: Redis) -> None:
         """All three limits should be enforced in mixed mode."""
         # Combined limit of 10K, input limit of 8K, output limit of 3K
-        config = RateLimitConfig(
-            tpm=10_000, input_tpm=8_000, output_tpm=3_000, rpm=100, window_seconds=1
-        )
+        config = RateLimitConfig(tpm=10_000, input_tpm=8_000, output_tpm=3_000, rpm=100, window_seconds=1)
         limiter = RateLimiter(redis_client, "mixed-test", config)
 
         # This uses 5K input + 2K output = 7K combined (under all limits)
@@ -246,14 +230,10 @@ class TestMixedModeIntegration:
         assert result.wait_time == 0.0
 
     @pytest.mark.asyncio
-    async def test_mixed_mode_combined_limit_triggers_wait(
-        self, redis_client: Redis
-    ) -> None:
+    async def test_mixed_mode_combined_limit_triggers_wait(self, redis_client: Redis) -> None:
         """Combined limit should trigger wait even if split limits are OK."""
         # Combined limit of 5K, but input/output limits are high
-        config = RateLimitConfig(
-            tpm=5_000, input_tpm=100_000, output_tpm=100_000, rpm=100, window_seconds=1
-        )
+        config = RateLimitConfig(tpm=5_000, input_tpm=100_000, output_tpm=100_000, rpm=100, window_seconds=1)
         limiter = RateLimiter(redis_client, "mixed-combined", config)
 
         # Use 4K combined
@@ -266,14 +246,10 @@ class TestMixedModeIntegration:
         assert result.wait_time > 0
 
     @pytest.mark.asyncio
-    async def test_mixed_mode_input_limit_triggers_wait(
-        self, redis_client: Redis
-    ) -> None:
+    async def test_mixed_mode_input_limit_triggers_wait(self, redis_client: Redis) -> None:
         """Input limit should trigger wait even if combined limit is OK."""
         # High combined limit, but low input limit
-        config = RateLimitConfig(
-            tpm=100_000, input_tpm=5_000, output_tpm=100_000, rpm=100, window_seconds=1
-        )
+        config = RateLimitConfig(tpm=100_000, input_tpm=5_000, output_tpm=100_000, rpm=100, window_seconds=1)
         limiter = RateLimiter(redis_client, "mixed-input", config)
 
         # Use 4K input
@@ -286,14 +262,10 @@ class TestMixedModeIntegration:
         assert result.wait_time > 0
 
     @pytest.mark.asyncio
-    async def test_mixed_mode_output_limit_triggers_wait(
-        self, redis_client: Redis
-    ) -> None:
+    async def test_mixed_mode_output_limit_triggers_wait(self, redis_client: Redis) -> None:
         """Output limit should trigger wait even if other limits are OK."""
         # High combined and input limits, but low output limit
-        config = RateLimitConfig(
-            tpm=100_000, input_tpm=100_000, output_tpm=5_000, rpm=100, window_seconds=1
-        )
+        config = RateLimitConfig(tpm=100_000, input_tpm=100_000, output_tpm=5_000, rpm=100, window_seconds=1)
         limiter = RateLimiter(redis_client, "mixed-output", config)
 
         # Use 4K output
@@ -306,13 +278,9 @@ class TestMixedModeIntegration:
         assert result.wait_time > 0
 
     @pytest.mark.asyncio
-    async def test_mixed_mode_status_shows_all_info(
-        self, redis_client: Redis
-    ) -> None:
+    async def test_mixed_mode_status_shows_all_info(self, redis_client: Redis) -> None:
         """Status should show combined and split info in mixed mode."""
-        config = RateLimitConfig(
-            tpm=100_000, input_tpm=80_000, output_tpm=20_000, rpm=100
-        )
+        config = RateLimitConfig(tpm=100_000, input_tpm=80_000, output_tpm=20_000, rpm=100)
         limiter = RateLimiter(redis_client, "mixed-status", config)
 
         await limiter.acquire(input_tokens=5000, output_tokens=2000)
@@ -359,15 +327,13 @@ class TestDisabledLimits:
     """Tests for disabled limits (set to 0)."""
 
     @pytest.mark.asyncio
-    async def test_disabled_rpm_allows_unlimited_requests(
-        self, redis_client: Redis
-    ) -> None:
+    async def test_disabled_rpm_allows_unlimited_requests(self, redis_client: Redis) -> None:
         """rpm=0 should allow unlimited requests."""
         config = RateLimitConfig(tpm=100_000, rpm=0)
         limiter = RateLimiter(redis_client, "test-no-rpm", config)
 
         # Should all be immediate even with many requests
-        for i in range(10):
+        for _ in range(10):
             result = await limiter.acquire(tokens=100)
             assert result.wait_time == 0.0
 
@@ -376,9 +342,7 @@ class TestConcurrentRequests:
     """Tests for concurrent request handling."""
 
     @pytest.mark.asyncio
-    async def test_concurrent_requests_get_unique_positions(
-        self, redis_client: Redis
-    ) -> None:
+    async def test_concurrent_requests_get_unique_positions(self, redis_client: Redis) -> None:
         """Concurrent requests should get unique queue positions."""
         config = RateLimitConfig(tpm=100_000, rpm=2, window_seconds=60)
         limiter = RateLimiter(redis_client, "test-concurrent", config)
@@ -405,9 +369,7 @@ class TestLongWaitTimes:
     """Tests for long wait time calculations."""
 
     @pytest.mark.asyncio
-    async def test_wait_time_calculation_for_deep_queue(
-        self, redis_client: Redis
-    ) -> None:
+    async def test_wait_time_calculation_for_deep_queue(self, redis_client: Redis) -> None:
         """Deep queue should calculate correct wait times."""
         config = RateLimitConfig(tpm=5_000, rpm=100, window_seconds=60)
         limiter = RateLimiter(redis_client, "test-deep-queue", config)
@@ -461,9 +423,7 @@ class TestConnectionManagerIntegration:
         await manager.close()
 
     @pytest.mark.asyncio
-    async def test_limiter_with_connection_manager(
-        self, connection_manager: RedisConnectionManager
-    ) -> None:
+    async def test_limiter_with_connection_manager(self, connection_manager: RedisConnectionManager) -> None:
         """RateLimiter should work with RedisConnectionManager."""
         config = RateLimitConfig(tpm=100_000, rpm=100)
         limiter = RateLimiter(connection_manager, "test-manager", config)
@@ -474,17 +434,13 @@ class TestConnectionManagerIntegration:
         assert result.queue_position == 0
 
     @pytest.mark.asyncio
-    async def test_connection_manager_ping(
-        self, connection_manager: RedisConnectionManager
-    ) -> None:
+    async def test_connection_manager_ping(self, connection_manager: RedisConnectionManager) -> None:
         """Connection manager client should be able to ping Redis."""
         result = await connection_manager.client.ping()
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_multiple_limiters_share_manager(
-        self, connection_manager: RedisConnectionManager
-    ) -> None:
+    async def test_multiple_limiters_share_manager(self, connection_manager: RedisConnectionManager) -> None:
         """Multiple limiters can share a connection manager."""
         config1 = RateLimitConfig(tpm=100_000, rpm=100)
         config2 = RateLimitConfig(input_tpm=4_000_000, output_tpm=128_000, rpm=360)
@@ -507,9 +463,7 @@ class TestConnectionManagerIntegration:
         redis_host = os.environ.get("REDIS_HOST", "localhost")
         redis_port = int(os.environ.get("REDIS_PORT", "6379"))
 
-        async with RedisConnectionManager(
-            host=redis_host, port=redis_port, db=15
-        ) as manager:
+        async with RedisConnectionManager(host=redis_host, port=redis_port, db=15) as manager:
             try:
                 await manager.client.ping()
             except Exception as e:

@@ -38,9 +38,7 @@ class TestCombinedModeBasic:
         mock_redis = AsyncMock()
         current_time = time.time()
         wait_time = 0.1  # 100ms wait for testing
-        mock_redis.eval = AsyncMock(
-            return_value=[current_time + wait_time, 1, "test-id", wait_time]
-        )
+        mock_redis.eval = AsyncMock(return_value=[current_time + wait_time, 1, "test-id", wait_time])
 
         config = RateLimitConfig(tpm=10_000, rpm=2)
         limiter = RateLimiter(mock_redis, "gpt-4", config)

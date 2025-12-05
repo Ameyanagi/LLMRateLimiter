@@ -10,9 +10,13 @@ from redis.asyncio import ConnectionPool, Redis
 from redis.exceptions import (
     AuthenticationError,
     BusyLoadingError,
-    ConnectionError as RedisConnectionError,
     DataError,
     ResponseError,
+)
+from redis.exceptions import (
+    ConnectionError as RedisConnectionError,
+)
+from redis.exceptions import (
     TimeoutError as RedisTimeoutError,
 )
 
@@ -52,7 +56,7 @@ def calculate_delay(attempt: int, config: RetryConfig) -> float:
         Delay in seconds before the next retry.
     """
     # Exponential backoff: base_delay * (exponential_base ** attempt)
-    delay = config.base_delay * (config.exponential_base ** attempt)
+    delay = config.base_delay * (config.exponential_base**attempt)
 
     # Cap at max_delay
     delay = min(delay, config.max_delay)
@@ -112,9 +116,9 @@ async def retry_with_backoff(
                     config.max_retries + 1,
                     e,
                 )
-        except Exception as e:
+        except Exception:
             # Unknown error - log and re-raise
-            logger.error("Unexpected error in %s: %s", operation_name, e)
+            logger.exception("Unexpected error in %s", operation_name)
             raise
 
     # All retries exhausted
