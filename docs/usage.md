@@ -18,19 +18,15 @@ Use this mode for providers like OpenAI and Anthropic that have a single tokens-
 
 ```python
 import asyncio
-from redis.asyncio import Redis
-from llmratelimiter import RateLimiter, RateLimitConfig
+from llmratelimiter import RateLimiter
 
 async def main():
-    redis = Redis(host="localhost", port=6379)
-
-    # OpenAI GPT-4 limits
-    config = RateLimitConfig(
+    # Simple: just pass URL and limits
+    limiter = RateLimiter(
+        "redis://localhost:6379", "gpt-4",
         tpm=100_000,      # 100K tokens per minute
         rpm=100,          # 100 requests per minute
-        window_seconds=60 # 1 minute sliding window
     )
-    limiter = RateLimiter(redis, "gpt-4", config)
 
     # Acquire capacity - blocks if rate limited
     result = await limiter.acquire(tokens=5000)
@@ -56,15 +52,15 @@ The `acquire()` method returns an `AcquireResult` with:
 Use this mode for providers like GCP Vertex AI that have separate limits for input and output tokens.
 
 ```python
-from llmratelimiter import RateLimiter, RateLimitConfig
+from llmratelimiter import RateLimiter
 
 # GCP Vertex AI Gemini 1.5 Pro limits
-config = RateLimitConfig(
+limiter = RateLimiter(
+    "redis://localhost:6379", "gemini-1.5-pro",
     input_tpm=4_000_000,   # 4M input tokens per minute
     output_tpm=128_000,    # 128K output tokens per minute
     rpm=360,               # 360 requests per minute
 )
-limiter = RateLimiter(redis, "gemini-1.5-pro", config)
 
 # Estimate output tokens upfront
 result = await limiter.acquire(input_tokens=5000, output_tokens=2048)
@@ -88,13 +84,15 @@ When using split mode, you must estimate output tokens before the call. After th
 You can combine both TPM limits for complex scenarios:
 
 ```python
-config = RateLimitConfig(
+from llmratelimiter import RateLimiter
+
+limiter = RateLimiter(
+    "redis://localhost:6379", "custom-model",
     tpm=500_000,           # Combined limit
     input_tpm=4_000_000,   # Input-specific limit
     output_tpm=128_000,    # Output-specific limit
     rpm=360,
 )
-limiter = RateLimiter(redis, "custom-model", config)
 
 # All three limits are checked independently
 result = await limiter.acquire(input_tokens=5000, output_tokens=2048)
@@ -107,17 +105,14 @@ For production use, use `RedisConnectionManager` for automatic connection poolin
 ### Basic Connection Manager
 
 ```python
-from llmratelimiter import RedisConnectionManager, RateLimiter, RateLimitConfig
+from llmratelimiter import RedisConnectionManager, RateLimiter
 
 manager = RedisConnectionManager(
-    host="localhost",
-    port=6379,
-    db=0,
+    "redis://localhost:6379",
     max_connections=10,
 )
 
-config = RateLimitConfig(tpm=100_000, rpm=100)
-limiter = RateLimiter(manager, "gpt-4", config)
+limiter = RateLimiter(manager, "gpt-4", tpm=100_000, rpm=100)
 ```
 
 ### With Retry Configuration
@@ -126,9 +121,7 @@ limiter = RateLimiter(manager, "gpt-4", config)
 from llmratelimiter import RedisConnectionManager, RetryConfig
 
 manager = RedisConnectionManager(
-    host="redis.example.com",
-    port=6379,
-    password="secret",
+    "redis://:secret@redis.example.com:6379",
     retry_config=RetryConfig(
         max_retries=5,        # Retry up to 5 times
         base_delay=0.1,       # Start with 100ms delay
@@ -144,8 +137,10 @@ manager = RedisConnectionManager(
 Use the connection manager as an async context manager for automatic cleanup:
 
 ```python
-async with RedisConnectionManager(host="localhost") as manager:
-    limiter = RateLimiter(manager, "gpt-4", config)
+from llmratelimiter import RedisConnectionManager, RateLimiter
+
+async with RedisConnectionManager("redis://localhost:6379") as manager:
+    limiter = RateLimiter(manager, "gpt-4", tpm=100_000, rpm=100)
     await limiter.acquire(tokens=5000)
 # Connection pool automatically closed
 ```
@@ -226,8 +221,9 @@ print(f"Queue depth: {status.queue_depth}")
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `host` | str | "localhost" | Redis host |
-| `port` | int | 6379 | Redis port |
+| `url` | str | None | Redis URL (e.g., "redis://localhost:6379") |
+| `host` | str | "localhost" | Redis host (if url not provided) |
+| `port` | int | 6379 | Redis port (if url not provided) |
 | `db` | int | 0 | Redis database number |
 | `password` | str | None | Redis password |
 | `max_connections` | int | 10 | Connection pool size |

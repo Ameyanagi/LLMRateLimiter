@@ -30,30 +30,28 @@ uv add llmratelimiter
 
 ## Quickstart
 
-### Basic Usage (Combined Mode)
+### Simple Usage
 
 ```python
-from redis.asyncio import Redis
-from llmratelimiter import RateLimiter, RateLimitConfig
+from llmratelimiter import RateLimiter
 
-# Connect to Redis
-redis = Redis(host="localhost", port=6379)
+# Just pass a Redis URL and your limits
+limiter = RateLimiter("redis://localhost:6379", "gpt-4", tpm=100_000, rpm=100)
 
-# Configure limits (e.g., OpenAI GPT-4)
-config = RateLimitConfig(tpm=100_000, rpm=100)
-limiter = RateLimiter(redis, "gpt-4", config)
-
-# Acquire capacity before making API call
 await limiter.acquire(tokens=5000)
 response = await openai.chat.completions.create(...)
 ```
 
-### Split Mode (Separate Input/Output Limits)
+### Split Mode (GCP Vertex AI)
 
 ```python
-# Configure for GCP Vertex AI with separate limits
-config = RateLimitConfig(input_tpm=4_000_000, output_tpm=128_000, rpm=360)
-limiter = RateLimiter(redis, "gemini-1.5-pro", config)
+from llmratelimiter import RateLimiter
+
+# Separate input/output token limits
+limiter = RateLimiter(
+    "redis://localhost:6379", "gemini-1.5-pro",
+    input_tpm=4_000_000, output_tpm=128_000, rpm=360
+)
 
 # Estimate output tokens upfront
 result = await limiter.acquire(input_tokens=5000, output_tokens=2048)
@@ -63,22 +61,29 @@ response = await vertex_ai.generate(...)
 await limiter.adjust(result.record_id, actual_output=response.output_tokens)
 ```
 
+### With Existing Redis Client
+
+```python
+from redis.asyncio import Redis
+from llmratelimiter import RateLimiter
+
+redis = Redis(host="localhost", port=6379)
+limiter = RateLimiter(redis=redis, model="gpt-4", tpm=100_000, rpm=100)
+
+await limiter.acquire(tokens=5000)
+```
+
 ### Production Setup with Retry
 
 ```python
-from llmratelimiter import (
-    RateLimiter, RateLimitConfig, RedisConnectionManager, RetryConfig
-)
+from llmratelimiter import RateLimiter, RedisConnectionManager, RetryConfig
 
-# Use connection manager for production
+# Use connection manager for automatic retry and pooling
 manager = RedisConnectionManager(
-    host="localhost",
-    port=6379,
+    "redis://localhost:6379",
     retry_config=RetryConfig(max_retries=3, base_delay=0.1),
 )
-
-config = RateLimitConfig(tpm=100_000, rpm=100)
-limiter = RateLimiter(manager, "gpt-4", config)
+limiter = RateLimiter(manager, "gpt-4", tpm=100_000, rpm=100)
 
 await limiter.acquire(tokens=5000)
 ```

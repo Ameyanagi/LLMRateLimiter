@@ -61,19 +61,14 @@ uv add llmratelimiter
 
 ## Quick Start
 
-### Combined Mode (OpenAI/Anthropic)
-
-For providers with a single tokens-per-minute limit:
+### Simple Usage
 
 ```python
-from redis.asyncio import Redis
-from llmratelimiter import RateLimiter, RateLimitConfig
+from llmratelimiter import RateLimiter
 
-redis = Redis(host="localhost", port=6379)
-config = RateLimitConfig(tpm=100_000, rpm=100)
-limiter = RateLimiter(redis, "gpt-4", config)
+# Just pass a Redis URL and your limits
+limiter = RateLimiter("redis://localhost:6379", "gpt-4", tpm=100_000, rpm=100)
 
-# Acquire capacity before making API call
 await limiter.acquire(tokens=5000)
 response = await openai.chat.completions.create(...)
 ```
@@ -83,8 +78,10 @@ response = await openai.chat.completions.create(...)
 For providers with separate input/output token limits:
 
 ```python
-config = RateLimitConfig(input_tpm=4_000_000, output_tpm=128_000, rpm=360)
-limiter = RateLimiter(redis, "gemini-1.5-pro", config)
+limiter = RateLimiter(
+    "redis://localhost:6379", "gemini-1.5-pro",
+    input_tpm=4_000_000, output_tpm=128_000, rpm=360
+)
 
 # Estimate output tokens upfront
 result = await limiter.acquire(input_tokens=5000, output_tokens=2048)
@@ -94,22 +91,30 @@ response = await vertex_ai.generate(...)
 await limiter.adjust(result.record_id, actual_output=response.output_tokens)
 ```
 
-### With Connection Manager
-
-For production use with automatic retry:
+### With Existing Redis Client
 
 ```python
-from llmratelimiter import (
-    RateLimiter, RateLimitConfig, RedisConnectionManager, RetryConfig
-)
+from redis.asyncio import Redis
+from llmratelimiter import RateLimiter
+
+redis = Redis(host="localhost", port=6379)
+limiter = RateLimiter(redis=redis, model="gpt-4", tpm=100_000, rpm=100)
+
+await limiter.acquire(tokens=5000)
+```
+
+### With Connection Manager (Production)
+
+For production use with automatic retry and connection pooling:
+
+```python
+from llmratelimiter import RateLimiter, RedisConnectionManager, RetryConfig
 
 manager = RedisConnectionManager(
-    host="localhost",
-    port=6379,
+    "redis://localhost:6379",
     retry_config=RetryConfig(max_retries=3, base_delay=0.1),
 )
-config = RateLimitConfig(tpm=100_000, rpm=100)
-limiter = RateLimiter(manager, "gpt-4", config)
+limiter = RateLimiter(manager, "gpt-4", tpm=100_000, rpm=100)
 
 await limiter.acquire(tokens=5000)
 ```

@@ -132,21 +132,24 @@ async def retry_with_backoff(
 class RedisConnectionManager:
     """Manages Redis connections with pooling and retry support.
 
-    Example:
-        >>> async with RedisConnectionManager(host="localhost") as manager:
+    Example with URL:
+        >>> async with RedisConnectionManager("redis://localhost:6379") as manager:
         ...     client = manager.client
         ...     await client.ping()
 
+    Example with host/port:
         >>> manager = RedisConnectionManager(
         ...     host="localhost",
         ...     port=6379,
         ...     retry_config=RetryConfig(max_retries=5, base_delay=0.2),
         ... )
-        >>> limiter = RateLimiter(manager, "gpt-4", config)
+        >>> limiter = RateLimiter(manager, "gpt-4", tpm=100_000, rpm=100)
     """
 
     def __init__(
         self,
+        url: str | None = None,
+        *,
         host: str = "localhost",
         port: int = 6379,
         db: int = 0,
@@ -159,15 +162,17 @@ class RedisConnectionManager:
         """Initialize the connection manager.
 
         Args:
-            host: Redis server hostname.
-            port: Redis server port.
-            db: Redis database number.
-            password: Redis password (optional).
+            url: Redis URL (e.g., "redis://localhost:6379/0"). If provided, host/port/db/password are ignored.
+            host: Redis server hostname (used if url is not provided).
+            port: Redis server port (used if url is not provided).
+            db: Redis database number (used if url is not provided).
+            password: Redis password (used if url is not provided).
             max_connections: Maximum connections in the pool.
             retry_config: Configuration for retry behavior. Defaults to RetryConfig().
             decode_responses: Whether to decode responses to strings.
             **redis_kwargs: Additional arguments passed to Redis client.
         """
+        self._url = url
         self._host = host
         self._port = port
         self._db = db
@@ -189,15 +194,25 @@ class RedisConnectionManager:
     def client(self) -> Redis:
         """Get the Redis client, creating the pool if needed."""
         if self._client is None:
-            self._pool = ConnectionPool(
-                host=self._host,
-                port=self._port,
-                db=self._db,
-                password=self._password,
-                max_connections=self._max_connections,
-                decode_responses=self._decode_responses,
-                **self._redis_kwargs,
-            )
+            if self._url is not None:
+                # Use URL-based connection pool
+                self._pool = ConnectionPool.from_url(
+                    self._url,
+                    max_connections=self._max_connections,
+                    decode_responses=self._decode_responses,
+                    **self._redis_kwargs,
+                )
+            else:
+                # Use host/port-based connection pool
+                self._pool = ConnectionPool(
+                    host=self._host,
+                    port=self._port,
+                    db=self._db,
+                    password=self._password,
+                    max_connections=self._max_connections,
+                    decode_responses=self._decode_responses,
+                    **self._redis_kwargs,
+                )
             self._client = Redis(connection_pool=self._pool)
         return self._client
 

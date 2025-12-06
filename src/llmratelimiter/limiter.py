@@ -22,52 +22,115 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Type alias for redis parameter
+RedisClient = str | Redis | RedisConnectionManager
+
 
 class RateLimiter:
     """Unified rate limiter for LLM API calls.
 
     Supports combined TPM, split TPM, or both based on the configuration.
 
-    Combined mode example (tpm > 0):
-        >>> config = RateLimitConfig(tpm=100_000, rpm=100)
-        >>> limiter = RateLimiter(redis, "gpt-4", config)
+    Simple URL example:
+        >>> limiter = RateLimiter("redis://localhost:6379", "gpt-4", tpm=100_000, rpm=100)
         >>> await limiter.acquire(tokens=5000)
 
-    Split mode example (input_tpm/output_tpm > 0):
-        >>> config = RateLimitConfig(input_tpm=4_000_000, output_tpm=128_000, rpm=360)
-        >>> limiter = RateLimiter(redis, "gemini-1.5-pro", config)
+    Split mode example (GCP Vertex AI):
+        >>> limiter = RateLimiter("redis://localhost", "gemini-1.5-pro",
+        ...                       input_tpm=4_000_000, output_tpm=128_000, rpm=360)
         >>> result = await limiter.acquire(input_tokens=5000, output_tokens=2048)
         >>> await limiter.adjust(result.record_id, actual_output=1500)
 
+    With existing Redis client:
+        >>> limiter = RateLimiter(redis=existing_client, model="gpt-4", tpm=100_000, rpm=100)
+
     With connection manager (includes retry support):
-        >>> manager = RedisConnectionManager(host="localhost", retry_config=RetryConfig())
-        >>> limiter = RateLimiter(manager, "gpt-4", config)
+        >>> manager = RedisConnectionManager("redis://localhost", retry_config=RetryConfig())
+        >>> limiter = RateLimiter(manager, "gpt-4", tpm=100_000, rpm=100)
+
+    With config object (advanced):
+        >>> config = RateLimitConfig(tpm=100_000, rpm=100, burst_multiplier=1.5)
+        >>> limiter = RateLimiter("redis://localhost", "gpt-4", config=config)
     """
 
     def __init__(
         self,
-        redis_client: Redis | RedisConnectionManager,
-        model_name: str,
-        config: RateLimitConfig,
+        redis: RedisClient | None = None,
+        model: str | None = None,
+        config: RateLimitConfig | None = None,
+        *,
+        # Rate limit kwargs (alternative to config)
+        tpm: int = 0,
+        rpm: int = 0,
+        input_tpm: int = 0,
+        output_tpm: int = 0,
+        window_seconds: int = 60,
+        burst_multiplier: float = 1.0,
+        # Retry config for URL connections
+        retry_config: RetryConfig | None = None,
+        # Legacy positional support
+        redis_client: Redis | RedisConnectionManager | None = None,
+        model_name: str | None = None,
     ) -> None:
         """Initialize the rate limiter.
 
         Args:
-            redis_client: Async Redis client or RedisConnectionManager instance.
-            model_name: Name of the model (used for Redis key namespace).
-            config: Configuration for rate limits.
+            redis: Redis URL string, async Redis client, or RedisConnectionManager.
+            model: Name of the model (used for Redis key namespace).
+            config: Configuration for rate limits (optional if using kwargs).
+            tpm: Combined tokens per minute limit.
+            rpm: Requests per minute limit.
+            input_tpm: Input tokens per minute limit (split mode).
+            output_tpm: Output tokens per minute limit (split mode).
+            window_seconds: Sliding window duration in seconds.
+            burst_multiplier: Multiplier for burst capacity.
+            retry_config: Retry configuration for URL-based connections.
+            redis_client: Deprecated, use 'redis' parameter.
+            model_name: Deprecated, use 'model' parameter.
         """
-        # Handle both Redis client and connection manager
-        if isinstance(redis_client, RedisConnectionManager):
-            self._manager: RedisConnectionManager | None = redis_client
-            self.redis = redis_client.client
-            self._retry_config: RetryConfig | None = redis_client.retry_config
-        else:
-            self._manager = None
-            self.redis = redis_client
-            self._retry_config = None
+        # Handle legacy parameter names for backward compatibility
+        if redis_client is not None and redis is None:
+            redis = redis_client
+        if model_name is not None and model is None:
+            model = model_name
 
-        self.model_name = model_name
+        if redis is None:
+            raise ValueError("redis parameter is required (URL string, Redis client, or RedisConnectionManager)")
+        if model is None:
+            raise ValueError("model parameter is required")
+
+        # Handle different redis parameter types
+        if isinstance(redis, str):
+            # URL string - create a connection manager
+            self._manager: RedisConnectionManager | None = RedisConnectionManager(
+                url=redis,
+                retry_config=retry_config,
+            )
+            self.redis = self._manager.client
+            self._retry_config: RetryConfig | None = self._manager.retry_config
+        elif isinstance(redis, RedisConnectionManager):
+            self._manager = redis
+            self.redis = redis.client
+            self._retry_config = redis.retry_config
+        else:
+            # Raw Redis client
+            self._manager = None
+            self.redis = redis
+            self._retry_config = retry_config
+
+        self.model_name = model
+
+        # Build config from kwargs if not provided
+        if config is None:
+            config = RateLimitConfig(
+                tpm=tpm,
+                rpm=rpm,
+                input_tpm=input_tpm,
+                output_tpm=output_tpm,
+                window_seconds=window_seconds,
+                burst_multiplier=burst_multiplier,
+            )
+
         self.window_seconds = config.window_seconds
         self.burst_multiplier = config.burst_multiplier
         self._config = config
@@ -79,7 +142,7 @@ class RateLimiter:
         self.output_tpm_limit = int(config.output_tpm * config.burst_multiplier) if config.output_tpm > 0 else 0
 
         # Redis key for consumption records
-        self.consumption_key = f"rate_limit:{model_name}:consumption"
+        self.consumption_key = f"rate_limit:{model}:consumption"
 
         # Lua scripts
         self._acquire_script = ACQUIRE_SCRIPT
