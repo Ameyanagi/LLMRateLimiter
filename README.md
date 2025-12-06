@@ -119,6 +119,14 @@ limiter = RateLimiter(manager, "gpt-4", tpm=100_000, rpm=100)
 await limiter.acquire(tokens=5000)
 ```
 
+### SSL Connection
+
+Use `rediss://` for SSL/TLS connections:
+
+```python
+limiter = RateLimiter("rediss://localhost:6379", "gpt-4", tpm=100_000, rpm=100)
+```
+
 ## Configuration Options
 
 ### RateLimitConfig

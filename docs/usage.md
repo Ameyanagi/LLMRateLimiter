@@ -196,6 +196,26 @@ print(f"Queue depth: {status.queue_depth}")
 
 ## Configuration Reference
 
+### RateLimiter
+
+The main class accepts a Redis connection and rate limit configuration:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `redis` | str \| Redis \| RedisConnectionManager | required | Redis URL, client, or manager |
+| `model` | str | required | Model name (used for Redis key namespace) |
+| `config` | RateLimitConfig | None | Configuration object (alternative to kwargs) |
+| `tpm` | int | 0 | Combined tokens-per-minute limit |
+| `rpm` | int | 0 | Requests-per-minute limit |
+| `input_tpm` | int | 0 | Input tokens-per-minute limit (split mode) |
+| `output_tpm` | int | 0 | Output tokens-per-minute limit (split mode) |
+| `window_seconds` | int | 60 | Sliding window duration |
+| `burst_multiplier` | float | 1.0 | Multiply limits for burst allowance |
+| `password` | str | None | Redis password (for URL connections) |
+| `db` | int | 0 | Redis database number (for URL connections) |
+| `max_connections` | int | 10 | Connection pool size (for URL connections) |
+| `retry_config` | RetryConfig | None | Retry configuration (for URL connections) |
+
 ### RateLimitConfig
 
 | Parameter | Type | Default | Description |
@@ -221,13 +241,71 @@ print(f"Queue depth: {status.queue_depth}")
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `url` | str | None | Redis URL (e.g., "redis://localhost:6379") |
+| `url` | str | None | Redis URL (e.g., "redis://localhost:6379", "rediss://..." for SSL) |
 | `host` | str | "localhost" | Redis host (if url not provided) |
 | `port` | int | 6379 | Redis port (if url not provided) |
 | `db` | int | 0 | Redis database number |
 | `password` | str | None | Redis password |
 | `max_connections` | int | 10 | Connection pool size |
 | `retry_config` | RetryConfig | RetryConfig() | Retry configuration |
+
+## SSL Connections
+
+Use the `rediss://` URL scheme for SSL/TLS connections:
+
+```python
+from llmratelimiter import RateLimiter
+
+# SSL connection
+limiter = RateLimiter("rediss://localhost:6379", "gpt-4", tpm=100_000, rpm=100)
+
+# SSL with password in URL
+limiter = RateLimiter("rediss://:secret@localhost:6379", "gpt-4", tpm=100_000)
+
+# SSL with password as kwarg
+limiter = RateLimiter("rediss://localhost:6379", "gpt-4", tpm=100_000, password="secret")
+```
+
+## Connection Options
+
+You can pass Redis connection parameters directly to RateLimiter:
+
+```python
+from llmratelimiter import RateLimiter
+
+# With password
+limiter = RateLimiter(
+    "redis://localhost:6379", "gpt-4",
+    tpm=100_000,
+    password="secret",
+)
+
+# With database number
+limiter = RateLimiter(
+    "redis://localhost:6379", "gpt-4",
+    tpm=100_000,
+    db=2,
+)
+
+# With connection pool size
+limiter = RateLimiter(
+    "redis://localhost:6379", "gpt-4",
+    tpm=100_000,
+    max_connections=20,
+)
+
+# All options combined
+limiter = RateLimiter(
+    "rediss://localhost:6379", "gpt-4",
+    tpm=100_000,
+    password="secret",
+    db=2,
+    max_connections=20,
+)
+```
+
+!!! note
+    When both URL and kwargs specify the same parameter (e.g., password), the kwarg value takes precedence.
 
 ## How It Works
 

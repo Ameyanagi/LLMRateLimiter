@@ -88,6 +88,15 @@ limiter = RateLimiter(manager, "gpt-4", tpm=100_000, rpm=100)
 await limiter.acquire(tokens=5000)
 ```
 
+### SSL Connection
+
+```python
+from llmratelimiter import RateLimiter
+
+# Use rediss:// for SSL connections
+limiter = RateLimiter("rediss://localhost:6379", "gpt-4", tpm=100_000, rpm=100)
+```
+
 ## Next Steps
 
 - [Usage Guide](usage.md) - Detailed examples for all modes and configurations
