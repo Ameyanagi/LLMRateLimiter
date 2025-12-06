@@ -70,7 +70,6 @@ class RateLimiter:
         password: str | None = None,
         db: int = 0,
         max_connections: int = 10,
-        ssl: bool = False,
         retry_config: RetryConfig | None = None,
         # Legacy positional support
         redis_client: Redis | RedisConnectionManager | None = None,
@@ -91,7 +90,6 @@ class RateLimiter:
             password: Redis password (for URL connections).
             db: Redis database number (for URL connections).
             max_connections: Maximum connections in pool (for URL connections).
-            ssl: Enable SSL/TLS for Redis connection.
             retry_config: Retry configuration for URL-based connections.
             redis_client: Deprecated, use 'redis' parameter.
             model_name: Deprecated, use 'model' parameter.
@@ -115,7 +113,6 @@ class RateLimiter:
                 password=password,
                 db=db,
                 max_connections=max_connections,
-                ssl=ssl,
                 retry_config=retry_config,
             )
             self.redis = self._manager.client

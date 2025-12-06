@@ -155,7 +155,6 @@ class RedisConnectionManager:
         db: int = 0,
         password: str | None = None,
         max_connections: int = 10,
-        ssl: bool = False,
         retry_config: RetryConfig | None = None,
         decode_responses: bool = True,
         **redis_kwargs: Any,
@@ -163,13 +162,12 @@ class RedisConnectionManager:
         """Initialize the connection manager.
 
         Args:
-            url: Redis URL (e.g., "redis://localhost:6379/0"). If provided, host/port are ignored.
+            url: Redis URL (e.g., "redis://localhost:6379/0", "rediss://..." for SSL).
             host: Redis server hostname (used if url is not provided).
             port: Redis server port (used if url is not provided).
             db: Redis database number.
             password: Redis password.
             max_connections: Maximum connections in the pool.
-            ssl: Enable SSL/TLS for Redis connection.
             retry_config: Configuration for retry behavior. Defaults to RetryConfig().
             decode_responses: Whether to decode responses to strings.
             **redis_kwargs: Additional arguments passed to Redis client.
@@ -180,7 +178,6 @@ class RedisConnectionManager:
         self._db = db
         self._password = password
         self._max_connections = max_connections
-        self._ssl = ssl
         self._retry_config = retry_config or RetryConfig()
         self._decode_responses = decode_responses
         self._redis_kwargs = redis_kwargs
@@ -204,14 +201,8 @@ class RedisConnectionManager:
                 **self._redis_kwargs,
             }
 
-            # Add SSL if enabled
-            if self._ssl:
-                pool_kwargs["connection_class"] = __import__(
-                    "redis.asyncio.connection", fromlist=["SSLConnection"]
-                ).SSLConnection
-
             if self._url is not None:
-                # Use URL-based connection pool
+                # Use URL-based connection pool (use rediss:// for SSL)
                 # Override db/password if explicitly provided
                 if self._db != 0:
                     pool_kwargs["db"] = self._db
