@@ -13,6 +13,7 @@ ACQUIRE_SCRIPT = """
 -- ARGV[7]: window_seconds
 -- ARGV[8]: current_time
 -- ARGV[9]: record_id
+-- ARGV[10]: effective_combined_tokens (pre-calculated with burndown rate on Python side)
 
 local consumption_key = KEYS[1]
 local input_tokens = tonumber(ARGV[1])
@@ -24,12 +25,10 @@ local rpm_limit = tonumber(ARGV[6])
 local window_seconds = tonumber(ARGV[7])
 local current_time = tonumber(ARGV[8])
 local record_id = ARGV[9]
+local effective_combined_tokens = tonumber(ARGV[10])
 
 local cutoff_time = current_time - window_seconds
 local epsilon = 0.001  -- 1ms FIFO spacing
-
--- Combined tokens for this request
-local combined_tokens = input_tokens + output_tokens
 
 -- STEP 1: Cleanup expired entries (slot_time < cutoff)
 redis.call('ZREMRANGEBYSCORE', consumption_key, '-inf', cutoff_time)
@@ -38,7 +37,7 @@ redis.call('ZREMRANGEBYSCORE', consumption_key, '-inf', cutoff_time)
 -- Sorted by slot_time ascending
 local records = redis.call('ZRANGE', consumption_key, 0, -1, 'WITHSCORES')
 
-local current_combined = 0
+local current_effective_combined = 0  -- With burndown rate applied (stored in each record)
 local current_input = 0
 local current_output = 0
 local current_requests = 0
@@ -51,19 +50,21 @@ for i = 1, #records, 2 do
 
     local entry_input = entry.input_tokens or entry.tokens or 0
     local entry_output = entry.output_tokens or 0
+    -- Use stored effective_combined_tokens, fallback to input+output for legacy records
+    local entry_effective_combined = entry.effective_combined_tokens or (entry_input + entry_output)
 
     current_input = current_input + entry_input
     current_output = current_output + entry_output
-    current_combined = current_combined + entry_input + entry_output
+    current_effective_combined = current_effective_combined + entry_effective_combined
     current_requests = current_requests + 1
     last_slot_time = math.max(last_slot_time, slot_time)
 
-    -- Store for later: {slot_time, input, output, combined, expiry_time}
+    -- Store for later: {slot_time, input, output, effective_combined, expiry_time}
     table.insert(record_list, {
         slot_time = slot_time,
         input_tokens = entry_input,
         output_tokens = entry_output,
-        combined_tokens = entry_input + entry_output,
+        effective_combined_tokens = entry_effective_combined,
         expiry_time = slot_time + window_seconds
     })
 end
@@ -76,7 +77,8 @@ local output_needed = 0
 local requests_needed = 0
 
 if tpm_limit > 0 then
-    combined_needed = combined_tokens - (tpm_limit - current_combined)
+    -- Use effective combined tokens (with burndown rate) for combined TPM limit
+    combined_needed = effective_combined_tokens - (tpm_limit - current_effective_combined)
 end
 if input_tpm_limit > 0 then
     input_needed = input_tokens - (input_tpm_limit - current_input)
@@ -99,7 +101,7 @@ if combined_needed > 0 or input_needed > 0 or output_needed > 0 or requests_need
         return a.expiry_time < b.expiry_time
     end)
 
-    local freed_combined = 0
+    local freed_effective_combined = 0
     local freed_input = 0
     local freed_output = 0
     local freed_requests = 0
@@ -107,13 +109,13 @@ if combined_needed > 0 or input_needed > 0 or output_needed > 0 or requests_need
 
     -- Walk through records until we have enough capacity for ALL constraints
     for _, rec in ipairs(record_list) do
-        freed_combined = freed_combined + rec.combined_tokens
+        freed_effective_combined = freed_effective_combined + rec.effective_combined_tokens
         freed_input = freed_input + rec.input_tokens
         freed_output = freed_output + rec.output_tokens
         freed_requests = freed_requests + 1
 
         -- Check if we've freed enough for ALL constraints
-        local combined_ok = (tpm_limit == 0) or (combined_needed <= 0) or (freed_combined >= combined_needed)
+        local combined_ok = (tpm_limit == 0) or (combined_needed <= 0) or (freed_effective_combined >= combined_needed)
         local input_ok = (input_tpm_limit == 0) or (input_needed <= 0) or (freed_input >= input_needed)
         local output_ok = (output_tpm_limit == 0) or (output_needed <= 0) or (freed_output >= output_needed)
         local requests_ok = (rpm_limit == 0) or (requests_needed <= 0) or (freed_requests >= requests_needed)
@@ -131,6 +133,7 @@ end
 local record = cjson.encode({
     input_tokens = input_tokens,
     output_tokens = output_tokens,
+    effective_combined_tokens = effective_combined_tokens,
     record_id = record_id,
     created_at = current_time
 })

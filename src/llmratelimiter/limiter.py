@@ -51,6 +51,12 @@ class RateLimiter:
     With config object (advanced):
         >>> config = RateLimitConfig(tpm=100_000, rpm=100, burst_multiplier=1.5)
         >>> limiter = RateLimiter("redis://localhost", "gpt-4", config=config)
+
+    AWS Bedrock with burndown rate (output tokens count 5x):
+        >>> limiter = RateLimiter("redis://localhost", "claude-sonnet",
+        ...                       tpm=100_000, rpm=100, burndown_rate=5.0)
+        >>> await limiter.acquire(input_tokens=3000, output_tokens=1000)
+        # TPM consumption: 3000 + (5.0 * 1000) = 8000 tokens
     """
 
     def __init__(
@@ -66,6 +72,7 @@ class RateLimiter:
         output_tpm: int = 0,
         window_seconds: int = 60,
         burst_multiplier: float = 1.0,
+        burndown_rate: float = 1.0,
         # Redis connection kwargs (for URL connections)
         password: str | None = None,
         db: int = 0,
@@ -87,6 +94,8 @@ class RateLimiter:
             output_tpm: Output tokens per minute limit (split mode).
             window_seconds: Sliding window duration in seconds.
             burst_multiplier: Multiplier for burst capacity.
+            burndown_rate: Output token multiplier for combined TPM (default 1.0).
+                AWS Bedrock Claude models use 5.0.
             password: Redis password (for URL connections).
             db: Redis database number (for URL connections).
             max_connections: Maximum connections in pool (for URL connections).
@@ -138,10 +147,12 @@ class RateLimiter:
                 output_tpm=output_tpm,
                 window_seconds=window_seconds,
                 burst_multiplier=burst_multiplier,
+                burndown_rate=burndown_rate,
             )
 
         self.window_seconds = config.window_seconds
         self.burst_multiplier = config.burst_multiplier
+        self._burndown_rate = config.burndown_rate
         self._config = config
 
         # Calculate effective limits with burst multiplier
@@ -190,36 +201,53 @@ class RateLimiter:
     ) -> AcquireResult:
         """Acquire rate limit capacity.
 
-        For combined mode only, use tokens parameter:
+        For combined mode with pre-calculated tokens, use tokens parameter:
             await limiter.acquire(tokens=5000)
+            # Burndown rate is NOT applied - value is used directly
 
-        For split or mixed mode, use input_tokens/output_tokens:
+        For separate input/output tracking, use input_tokens/output_tokens:
             await limiter.acquire(input_tokens=5000, output_tokens=2048)
+            # Burndown rate IS applied: effective = input + (burndown_rate * output)
+
+        With burndown rate (e.g., AWS Bedrock with burndown_rate=5.0):
+            await limiter.acquire(input_tokens=3000, output_tokens=1000)
+            # TPM consumption: 3000 + (5.0 * 1000) = 8000 tokens
 
         Blocks until capacity is available (FIFO ordering), then returns.
         On Redis failure (after retries if configured), allows the request
         (graceful degradation).
 
+        Note: The burndown_rate is only applied when using input_tokens/output_tokens.
+        When using the tokens= parameter, it is assumed the burndown calculation
+        has already been done by the caller. Split input/output TPM limits
+        are not affected by burndown_rate.
+
         Args:
-            tokens: Number of tokens (treated as input_tokens, output_tokens=0).
+            tokens: Pre-calculated total tokens (burndown already applied if needed).
             input_tokens: Number of input tokens.
             output_tokens: Number of output tokens (default 0).
 
         Returns:
             AcquireResult with slot time, wait time, queue position, and record ID.
         """
-        # Resolve input tokens
+        # Resolve input tokens and determine if burndown rate should be applied
         if tokens is not None:
             if input_tokens is not None:
                 raise ValueError("Cannot specify both tokens and input_tokens")
+            # When tokens= is used, assume burndown is already applied
+            # Use the value directly as effective_combined_tokens
             input_tokens = tokens
-
-        if input_tokens is None:
-            raise ValueError("Must specify either tokens or input_tokens")
+            effective_combined_tokens = float(tokens)
+        else:
+            if input_tokens is None:
+                raise ValueError("Must specify either tokens or input_tokens")
+            # When input_tokens/output_tokens are used, apply burndown rate
+            effective_combined_tokens = input_tokens + (self._burndown_rate * output_tokens)
 
         return await self._execute_acquire(
             input_tokens=input_tokens,
             output_tokens=output_tokens,
+            effective_combined_tokens=effective_combined_tokens,
         )
 
     async def adjust(self, record_id: str, actual_output: int) -> None:
@@ -309,12 +337,14 @@ class RateLimiter:
         self,
         input_tokens: int,
         output_tokens: int,
+        effective_combined_tokens: float,
     ) -> AcquireResult:
         """Execute the acquire operation with the Lua script.
 
         Args:
             input_tokens: Number of input tokens.
             output_tokens: Number of output tokens.
+            effective_combined_tokens: Pre-calculated combined tokens (with burndown rate if applicable).
 
         Returns:
             AcquireResult with slot time, wait time, queue position, and record ID.
@@ -336,6 +366,7 @@ class RateLimiter:
                 self.window_seconds,
                 current_time,
                 record_id,
+                effective_combined_tokens,  # pre-calculated with burndown rate
             )
             return (
                 float(result[0]),

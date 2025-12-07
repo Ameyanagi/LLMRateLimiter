@@ -1,6 +1,6 @@
 [project]
 name = "LLMRateLimiter"
-version = "0.1.0"
+version = "0.2.0"
 description = "Rate limiter for LLM"
 authors = [{ name = "Ameyanagi", email = "contact@ameyanagi.com" }]
 readme = "README.md"

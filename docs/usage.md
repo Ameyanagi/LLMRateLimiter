@@ -21,15 +21,14 @@ import asyncio
 from llmratelimiter import RateLimiter
 
 async def main():
-    # Simple: just pass URL and limits
     limiter = RateLimiter(
         "redis://localhost:6379", "gpt-4",
         tpm=100_000,      # 100K tokens per minute
         rpm=100,          # 100 requests per minute
     )
 
-    # Acquire capacity - blocks if rate limited
-    result = await limiter.acquire(tokens=5000)
+    # Recommended: specify input and output tokens separately
+    result = await limiter.acquire(input_tokens=3000, output_tokens=2000)
     print(f"Wait time: {result.wait_time:.2f}s, Queue position: {result.queue_position}")
 
     # Now safe to make API call
@@ -37,6 +36,11 @@ async def main():
 
 asyncio.run(main())
 ```
+
+!!! tip "Recommended: Use input_tokens and output_tokens"
+    Always prefer `acquire(input_tokens=X, output_tokens=Y)` over `acquire(tokens=N)`.
+    This enables accurate burndown rate calculations for providers like AWS Bedrock,
+    and provides better tracking of token usage.
 
 ### AcquireResult
 
@@ -97,6 +101,37 @@ limiter = RateLimiter(
 # All three limits are checked independently
 result = await limiter.acquire(input_tokens=5000, output_tokens=2048)
 ```
+
+## Burndown Rate (AWS Bedrock)
+
+AWS Bedrock uses a "token burndown rate" where output tokens count more heavily toward the TPM limit. For example, Claude models on AWS Bedrock use a 5x multiplier for output tokens.
+
+```python
+from llmratelimiter import RateLimiter
+
+# AWS Bedrock Claude with 5x burndown rate
+limiter = RateLimiter(
+    "redis://localhost:6379", "claude-sonnet",
+    tpm=100_000,         # TPM limit
+    rpm=100,
+    burndown_rate=5.0,   # Output tokens count 5x toward TPM
+)
+
+# Use input_tokens and output_tokens for accurate calculation
+await limiter.acquire(input_tokens=3000, output_tokens=1000)
+# TPM consumption: 3000 + (5.0 * 1000) = 8000 tokens
+```
+
+The burndown rate formula is: `effective_tpm = input_tokens + (burndown_rate * output_tokens)`
+
+| Provider | `burndown_rate` |
+|----------|-----------------|
+| OpenAI/Anthropic (direct) | 1.0 (default) |
+| AWS Bedrock Claude | 5.0 |
+| Other providers | Check documentation |
+
+!!! note
+    The burndown rate only affects the combined TPM limit. Split input/output TPM limits (like GCP Vertex AI) are not affected by the burndown rate.
 
 ## Connection Management
 
@@ -211,6 +246,7 @@ The main class accepts a Redis connection and rate limit configuration:
 | `output_tpm` | int | 0 | Output tokens-per-minute limit (split mode) |
 | `window_seconds` | int | 60 | Sliding window duration |
 | `burst_multiplier` | float | 1.0 | Multiply limits for burst allowance |
+| `burndown_rate` | float | 1.0 | Output token multiplier for combined TPM (AWS Bedrock: 5.0) |
 | `password` | str | None | Redis password (for URL connections) |
 | `db` | int | 0 | Redis database number (for URL connections) |
 | `max_connections` | int | 10 | Connection pool size (for URL connections) |
@@ -226,6 +262,7 @@ The main class accepts a Redis connection and rate limit configuration:
 | `rpm` | int | 0 | Requests-per-minute limit |
 | `window_seconds` | int | 60 | Sliding window duration |
 | `burst_multiplier` | float | 1.0 | Multiply limits for burst allowance |
+| `burndown_rate` | float | 1.0 | Output token multiplier for combined TPM |
 
 ### RetryConfig
 

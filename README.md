@@ -61,7 +61,7 @@ uv add llmratelimiter
 
 ## Quick Start
 
-### Simple Usage
+### Basic Usage
 
 ```python
 from llmratelimiter import RateLimiter
@@ -69,7 +69,8 @@ from llmratelimiter import RateLimiter
 # Just pass a Redis URL and your limits
 limiter = RateLimiter("redis://localhost:6379", "gpt-4", tpm=100_000, rpm=100)
 
-await limiter.acquire(tokens=5000)
+# Recommended: specify input and output tokens separately
+await limiter.acquire(input_tokens=3000, output_tokens=2000)
 response = await openai.chat.completions.create(...)
 ```
 
@@ -91,6 +92,20 @@ response = await vertex_ai.generate(...)
 await limiter.adjust(result.record_id, actual_output=response.output_tokens)
 ```
 
+### AWS Bedrock (Burndown Rate)
+
+AWS Bedrock uses a burndown rate where output tokens count 5x toward TPM:
+
+```python
+limiter = RateLimiter(
+    "redis://localhost:6379", "claude-sonnet",
+    tpm=100_000, rpm=100, burndown_rate=5.0
+)
+
+await limiter.acquire(input_tokens=3000, output_tokens=1000)
+# TPM consumption: 3000 + (5.0 * 1000) = 8000 tokens
+```
+
 ### With Existing Redis Client
 
 ```python
@@ -100,7 +115,7 @@ from llmratelimiter import RateLimiter
 redis = Redis(host="localhost", port=6379)
 limiter = RateLimiter(redis=redis, model="gpt-4", tpm=100_000, rpm=100)
 
-await limiter.acquire(tokens=5000)
+await limiter.acquire(input_tokens=3000, output_tokens=2000)
 ```
 
 ### With Connection Manager (Production)
@@ -116,7 +131,7 @@ manager = RedisConnectionManager(
 )
 limiter = RateLimiter(manager, "gpt-4", tpm=100_000, rpm=100)
 
-await limiter.acquire(tokens=5000)
+await limiter.acquire(input_tokens=3000, output_tokens=2000)
 ```
 
 ### SSL Connection
@@ -139,6 +154,7 @@ limiter = RateLimiter("rediss://localhost:6379", "gpt-4", tpm=100_000, rpm=100)
 | `rpm` | Requests-per-minute limit |
 | `window_seconds` | Sliding window size (default: 60) |
 | `burst_multiplier` | Allow burst above limits (default: 1.0) |
+| `burndown_rate` | Output token multiplier for combined TPM (default: 1.0, AWS Bedrock: 5.0) |
 
 ### RetryConfig
 

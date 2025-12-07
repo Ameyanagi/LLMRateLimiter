@@ -60,6 +60,10 @@ class RateLimitConfig:
         - Set tpm=0 to disable combined token limiting
         - Set input_tpm=0 or output_tpm=0 to disable that specific limit
 
+    Burndown rate (AWS Bedrock):
+        RateLimitConfig(tpm=100_000, rpm=100, burndown_rate=5.0)
+        # TPM consumption = input_tokens + (burndown_rate * output_tokens)
+
     Args:
         rpm: Requests per minute limit. Set to 0 to disable.
         tpm: Combined tokens per minute limit (input + output). Set to 0 to disable.
@@ -67,6 +71,8 @@ class RateLimitConfig:
         output_tpm: Output tokens per minute limit. Set to 0 to disable.
         window_seconds: Sliding window duration in seconds.
         burst_multiplier: Multiplier for burst capacity above base limits.
+        burndown_rate: Output token multiplier for combined TPM (default 1.0).
+            AWS Bedrock Claude models use 5.0.
     """
 
     rpm: int
@@ -75,6 +81,12 @@ class RateLimitConfig:
     output_tpm: int = 0
     window_seconds: int = 60
     burst_multiplier: float = 1.0
+    burndown_rate: float = 1.0
+
+    def __post_init__(self) -> None:
+        """Validate configuration values."""
+        if self.burndown_rate < 0:
+            raise ValueError("burndown_rate must be >= 0")
 
     @property
     def is_split_mode(self) -> bool:
