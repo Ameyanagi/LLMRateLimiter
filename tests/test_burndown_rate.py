@@ -43,9 +43,7 @@ class TestBurndownRateLimiterInit:
     async def test_burndown_rate_via_constructor_kwarg(self) -> None:
         """Burndown rate can be set via constructor kwarg."""
         mock_redis = AsyncMock()
-        limiter = RateLimiter(
-            mock_redis, "claude-sonnet", tpm=100_000, rpm=100, burndown_rate=5.0
-        )
+        limiter = RateLimiter(mock_redis, "claude-sonnet", tpm=100_000, rpm=100, burndown_rate=5.0)
         assert limiter._burndown_rate == 5.0
 
     @pytest.mark.asyncio
@@ -74,9 +72,7 @@ class TestBurndownRateAcquire:
         current_time = time.time()
         mock_redis.eval = AsyncMock(return_value=[current_time, 0, "test-id", 0.0])
 
-        limiter = RateLimiter(
-            mock_redis, "claude-sonnet", tpm=100_000, rpm=100, burndown_rate=5.0
-        )
+        limiter = RateLimiter(mock_redis, "claude-sonnet", tpm=100_000, rpm=100, burndown_rate=5.0)
 
         # Call acquire with input and output tokens
         await limiter.acquire(input_tokens=3000, output_tokens=1000)
@@ -96,9 +92,7 @@ class TestBurndownRateAcquire:
         current_time = time.time()
         mock_redis.eval = AsyncMock(return_value=[current_time, 0, "test-id", 0.0])
 
-        limiter = RateLimiter(
-            mock_redis, "claude-sonnet", tpm=100_000, rpm=100, burndown_rate=5.0
-        )
+        limiter = RateLimiter(mock_redis, "claude-sonnet", tpm=100_000, rpm=100, burndown_rate=5.0)
 
         # Call acquire with tokens (assume caller already applied burndown)
         await limiter.acquire(tokens=8000)  # e.g., 3000 input + 5*1000 output
@@ -116,7 +110,10 @@ class TestBurndownRateAcquire:
         mock_redis.eval = AsyncMock(return_value=[current_time, 0, "test-id", 0.0])
 
         limiter = RateLimiter(
-            mock_redis, "gpt-4", tpm=100_000, rpm=100  # default burndown_rate=1.0
+            mock_redis,
+            "gpt-4",
+            tpm=100_000,
+            rpm=100,  # default burndown_rate=1.0
         )
 
         await limiter.acquire(input_tokens=3000, output_tokens=1000)
@@ -134,9 +131,7 @@ class TestBurndownRateAcquire:
         current_time = time.time()
         mock_redis.eval = AsyncMock(return_value=[current_time, 0, "test-id", 0.0])
 
-        limiter = RateLimiter(
-            mock_redis, "test-model", tpm=100_000, rpm=100, burndown_rate=0.0
-        )
+        limiter = RateLimiter(mock_redis, "test-model", tpm=100_000, rpm=100, burndown_rate=0.0)
 
         await limiter.acquire(input_tokens=3000, output_tokens=10000)
 
