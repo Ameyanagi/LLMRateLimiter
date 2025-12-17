@@ -64,6 +64,13 @@ class RateLimitConfig:
         RateLimitConfig(tpm=100_000, rpm=100, burndown_rate=5.0)
         # TPM consumption = input_tokens + (burndown_rate * output_tokens)
 
+    RPS smoothing (Azure OpenAI burst prevention):
+        RateLimitConfig(tpm=300_000, rpm=600, smooth_requests=True)
+        # Auto-calculates RPS = 600/60 = 10, enforces 100ms minimum gap
+
+        RateLimitConfig(tpm=300_000, rpm=600, rps=8)
+        # Explicit RPS, auto-enables smoothing, enforces 125ms minimum gap
+
     Args:
         rpm: Requests per minute limit. Set to 0 to disable.
         tpm: Combined tokens per minute limit (input + output). Set to 0 to disable.
@@ -73,6 +80,12 @@ class RateLimitConfig:
         burst_multiplier: Multiplier for burst capacity above base limits.
         burndown_rate: Output token multiplier for combined TPM (default 1.0).
             AWS Bedrock Claude models use 5.0.
+        smooth_requests: Enable RPS smoothing to prevent burst-triggered rate limits.
+            When True, auto-calculates RPS from RPM. Default False.
+        rps: Explicit requests-per-second limit. When set > 0, auto-enables smoothing.
+            Set to 0 to auto-calculate from RPM when smooth_requests=True.
+        smoothing_interval: Evaluation window in seconds for RPS enforcement.
+            Azure uses 1.0s intervals. Default 1.0.
     """
 
     rpm: int
@@ -82,11 +95,18 @@ class RateLimitConfig:
     window_seconds: int = 60
     burst_multiplier: float = 1.0
     burndown_rate: float = 1.0
+    smooth_requests: bool = False
+    rps: int = 0
+    smoothing_interval: float = 1.0
 
     def __post_init__(self) -> None:
         """Validate configuration values."""
         if self.burndown_rate < 0:
             raise ValueError("burndown_rate must be >= 0")
+        if self.rps < 0:
+            raise ValueError("rps must be >= 0")
+        if self.smoothing_interval <= 0:
+            raise ValueError("smoothing_interval must be > 0")
 
     @property
     def is_split_mode(self) -> bool:
@@ -97,3 +117,26 @@ class RateLimitConfig:
     def has_combined_limit(self) -> bool:
         """Whether this config has a combined TPM limit."""
         return self.tpm > 0
+
+    @property
+    def is_smoothing_enabled(self) -> bool:
+        """Whether RPS smoothing is active.
+
+        Smoothing is enabled when either:
+        - smooth_requests=True (auto-calculate RPS from RPM)
+        - rps > 0 (explicit RPS, auto-enables smoothing)
+        """
+        return self.rps > 0 or self.smooth_requests
+
+    @property
+    def effective_rps(self) -> float:
+        """Calculate effective RPS limit.
+
+        Returns:
+            Explicit rps if set, otherwise rpm/60 if smoothing enabled, else 0.
+        """
+        if self.rps > 0:
+            return float(self.rps)
+        if self.smooth_requests and self.rpm > 0:
+            return self.rpm / 60.0
+        return 0.0

@@ -57,6 +57,15 @@ class RateLimiter:
         ...                       tpm=100_000, rpm=100, burndown_rate=5.0)
         >>> await limiter.acquire(input_tokens=3000, output_tokens=1000)
         # TPM consumption: 3000 + (5.0 * 1000) = 8000 tokens
+
+    Azure OpenAI with RPS smoothing (burst prevention):
+        >>> limiter = RateLimiter("redis://localhost", "gpt-4",
+        ...                       tpm=300_000, rpm=600, smooth_requests=True)
+        # Auto-calculates RPS = 600/60 = 10, enforces 100ms minimum gap
+
+        >>> limiter = RateLimiter("redis://localhost", "gpt-4",
+        ...                       tpm=300_000, rpm=600, rps=8)
+        # Explicit RPS, auto-enables smoothing, enforces 125ms minimum gap
     """
 
     def __init__(
@@ -73,6 +82,9 @@ class RateLimiter:
         window_seconds: int = 60,
         burst_multiplier: float = 1.0,
         burndown_rate: float = 1.0,
+        smooth_requests: bool = False,
+        rps: int = 0,
+        smoothing_interval: float = 1.0,
         # Redis connection kwargs (for URL connections)
         password: str | None = None,
         db: int = 0,
@@ -96,6 +108,12 @@ class RateLimiter:
             burst_multiplier: Multiplier for burst capacity.
             burndown_rate: Output token multiplier for combined TPM (default 1.0).
                 AWS Bedrock Claude models use 5.0.
+            smooth_requests: Enable RPS smoothing to prevent burst-triggered rate limits.
+                When True, auto-calculates RPS from RPM. Default False.
+            rps: Explicit requests-per-second limit. When set > 0, auto-enables smoothing.
+                Set to 0 to auto-calculate from RPM when smooth_requests=True.
+            smoothing_interval: Evaluation window in seconds for RPS enforcement.
+                Azure uses 1.0s intervals. Default 1.0.
             password: Redis password (for URL connections).
             db: Redis database number (for URL connections).
             max_connections: Maximum connections in pool (for URL connections).
@@ -148,6 +166,9 @@ class RateLimiter:
                 window_seconds=window_seconds,
                 burst_multiplier=burst_multiplier,
                 burndown_rate=burndown_rate,
+                smooth_requests=smooth_requests,
+                rps=rps,
+                smoothing_interval=smoothing_interval,
             )
 
         self.window_seconds = config.window_seconds
@@ -160,6 +181,10 @@ class RateLimiter:
         self.tpm_limit = int(config.tpm * config.burst_multiplier) if config.tpm > 0 else 0
         self.input_tpm_limit = int(config.input_tpm * config.burst_multiplier) if config.input_tpm > 0 else 0
         self.output_tpm_limit = int(config.output_tpm * config.burst_multiplier) if config.output_tpm > 0 else 0
+
+        # RPS smoothing settings
+        self._rps_limit = config.effective_rps
+        self._smoothing_interval = config.smoothing_interval
 
         # Redis key for consumption records
         self.consumption_key = f"rate_limit:{model}:consumption"
@@ -367,6 +392,8 @@ class RateLimiter:
                 current_time,
                 record_id,
                 effective_combined_tokens,  # pre-calculated with burndown rate
+                self._rps_limit,  # RPS limit (0 = disabled)
+                self._smoothing_interval,  # smoothing interval in seconds
             )
             return (
                 float(result[0]),

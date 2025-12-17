@@ -14,6 +14,8 @@ ACQUIRE_SCRIPT = """
 -- ARGV[8]: current_time
 -- ARGV[9]: record_id
 -- ARGV[10]: effective_combined_tokens (pre-calculated with burndown rate on Python side)
+-- ARGV[11]: rps_limit (0 = disabled, for RPS smoothing)
+-- ARGV[12]: smoothing_interval (seconds, e.g., 1.0)
 
 local consumption_key = KEYS[1]
 local input_tokens = tonumber(ARGV[1])
@@ -26,6 +28,8 @@ local window_seconds = tonumber(ARGV[7])
 local current_time = tonumber(ARGV[8])
 local record_id = ARGV[9]
 local effective_combined_tokens = tonumber(ARGV[10])
+local rps_limit = tonumber(ARGV[11])
+local smoothing_interval = tonumber(ARGV[12])
 
 local cutoff_time = current_time - window_seconds
 local epsilon = 0.001  -- 1ms FIFO spacing
@@ -92,6 +96,13 @@ end
 
 -- STEP 4: FIFO - start after the last request
 local your_slot_time = last_slot_time + epsilon
+
+-- STEP 4.5: RPS smoothing - enforce minimum interval between requests
+if rps_limit > 0 and smoothing_interval > 0 then
+    local min_interval = smoothing_interval / rps_limit
+    local min_slot_time = last_slot_time + min_interval
+    your_slot_time = math.max(your_slot_time, min_slot_time)
+end
 
 -- STEP 5: If over any capacity, find when ENOUGH capacity frees up
 if combined_needed > 0 or input_needed > 0 or output_needed > 0 or requests_needed > 0 then

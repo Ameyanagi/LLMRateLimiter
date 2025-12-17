@@ -106,6 +106,34 @@ await limiter.acquire(input_tokens=3000, output_tokens=1000)
 # TPM consumption: 3000 + (5.0 * 1000) = 8000 tokens
 ```
 
+### Azure OpenAI (RPS Smoothing)
+
+Azure OpenAI enforces rate limits at sub-second intervals. If you set 600 RPM, Azure
+actually enforces 10 requests per second. Bursts can trigger 429 errors even when
+you're under the minute-level limit.
+
+Enable RPS smoothing to prevent burst-triggered rate limits:
+
+```python
+# Auto-calculate RPS from RPM (600 RPM = 10 RPS = 100ms minimum gap)
+limiter = RateLimiter(
+    "redis://localhost:6379", "gpt-4",
+    tpm=300_000, rpm=600, smooth_requests=True
+)
+
+# Or set explicit RPS for more conservative rate limiting
+limiter = RateLimiter(
+    "redis://localhost:6379", "gpt-4",
+    tpm=300_000, rpm=600, rps=8  # 125ms minimum gap
+)
+
+# Custom evaluation interval (Azure may use 1s or 10s intervals)
+limiter = RateLimiter(
+    "redis://localhost:6379", "gpt-4",
+    tpm=300_000, rpm=600, smooth_requests=True, smoothing_interval=10.0
+)
+```
+
 ### With Existing Redis Client
 
 ```python
@@ -155,6 +183,9 @@ limiter = RateLimiter("rediss://localhost:6379", "gpt-4", tpm=100_000, rpm=100)
 | `window_seconds` | Sliding window size (default: 60) |
 | `burst_multiplier` | Allow burst above limits (default: 1.0) |
 | `burndown_rate` | Output token multiplier for combined TPM (default: 1.0, AWS Bedrock: 5.0) |
+| `smooth_requests` | Enable RPS smoothing for burst prevention (default: False) |
+| `rps` | Explicit requests-per-second limit (auto-enables smoothing when > 0) |
+| `smoothing_interval` | Evaluation interval for RPS in seconds (default: 1.0) |
 
 ### RetryConfig
 
