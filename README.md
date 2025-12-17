@@ -183,7 +183,7 @@ limiter = RateLimiter("rediss://localhost:6379", "gpt-4", tpm=100_000, rpm=100)
 | `window_seconds` | Sliding window size (default: 60) |
 | `burst_multiplier` | Allow burst above limits (default: 1.0) |
 | `burndown_rate` | Output token multiplier for combined TPM (default: 1.0, AWS Bedrock: 5.0) |
-| `smooth_requests` | Enable RPS smoothing for burst prevention (default: False) |
+| `smooth_requests` | Enable RPS smoothing for burst prevention (default: True) |
 | `rps` | Explicit requests-per-second limit (auto-enables smoothing when > 0) |
 | `smoothing_interval` | Evaluation interval for RPS in seconds (default: 1.0) |
 

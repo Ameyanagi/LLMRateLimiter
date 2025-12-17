@@ -82,7 +82,7 @@ class RateLimiter:
         window_seconds: int = 60,
         burst_multiplier: float = 1.0,
         burndown_rate: float = 1.0,
-        smooth_requests: bool = False,
+        smooth_requests: bool = True,
         rps: int = 0,
         smoothing_interval: float = 1.0,
         # Redis connection kwargs (for URL connections)
@@ -109,7 +109,7 @@ class RateLimiter:
             burndown_rate: Output token multiplier for combined TPM (default 1.0).
                 AWS Bedrock Claude models use 5.0.
             smooth_requests: Enable RPS smoothing to prevent burst-triggered rate limits.
-                When True, auto-calculates RPS from RPM. Default False.
+                When True, auto-calculates RPS from RPM. Default True.
             rps: Explicit requests-per-second limit. When set > 0, auto-enables smoothing.
                 Set to 0 to auto-calculate from RPM when smooth_requests=True.
             smoothing_interval: Evaluation window in seconds for RPS enforcement.

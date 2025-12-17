@@ -15,14 +15,14 @@ from llmratelimiter import RateLimitConfig, RateLimiter
 class TestRPSSmoothingConfig:
     """Configuration tests for RPS smoothing."""
 
-    def test_default_smoothing_disabled(self) -> None:
-        """Default smoothing should be disabled."""
+    def test_default_smoothing_enabled(self) -> None:
+        """Default smoothing should be enabled."""
         config = RateLimitConfig(tpm=100_000, rpm=100)
-        assert config.smooth_requests is False
+        assert config.smooth_requests is True
         assert config.rps == 0
         assert config.smoothing_interval == 1.0
-        assert config.is_smoothing_enabled is False
-        assert config.effective_rps == 0.0
+        assert config.is_smoothing_enabled is True
+        assert config.effective_rps == 100 / 60.0  # Auto-calculated from RPM
 
     def test_enable_smoothing_auto_calculate_rps(self) -> None:
         """Enabling smooth_requests should auto-calculate RPS from RPM."""
@@ -111,10 +111,17 @@ class TestRPSSmoothingLimiterInit:
         assert limiter._smoothing_interval == 10.0
 
     @pytest.mark.asyncio
-    async def test_default_no_smoothing_in_limiter(self) -> None:
-        """Default limiter should have no RPS smoothing."""
+    async def test_default_smoothing_in_limiter(self) -> None:
+        """Default limiter should have RPS smoothing enabled."""
         mock_redis = AsyncMock()
         limiter = RateLimiter(mock_redis, "gpt-4", tpm=100_000, rpm=100)
+        assert limiter._rps_limit == 100 / 60.0  # Auto-calculated from RPM
+
+    @pytest.mark.asyncio
+    async def test_disabled_smoothing_in_limiter(self) -> None:
+        """Limiter with smooth_requests=False should have no RPS smoothing."""
+        mock_redis = AsyncMock()
+        limiter = RateLimiter(mock_redis, "gpt-4", tpm=100_000, rpm=100, smooth_requests=False)
         assert limiter._rps_limit == 0.0
 
 
@@ -157,12 +164,12 @@ class TestRPSSmoothingAcquire:
 
     @pytest.mark.asyncio
     async def test_no_rps_passed_when_disabled(self) -> None:
-        """RPS limit should be 0 when smoothing is disabled."""
+        """RPS limit should be 0 when smoothing is explicitly disabled."""
         mock_redis = AsyncMock()
         current_time = time.time()
         mock_redis.eval = AsyncMock(return_value=[current_time, 0, "test-id", 0.0])
 
-        limiter = RateLimiter(mock_redis, "gpt-4", tpm=100_000, rpm=100)  # No smoothing
+        limiter = RateLimiter(mock_redis, "gpt-4", tpm=100_000, rpm=100, smooth_requests=False)
 
         await limiter.acquire(tokens=1000)
 
