@@ -76,9 +76,7 @@ class TestRPSSmoothingLimiterInit:
     async def test_smoothing_via_constructor_kwargs(self) -> None:
         """RPS smoothing can be set via constructor kwargs."""
         mock_redis = AsyncMock()
-        limiter = RateLimiter(
-            mock_redis, "gpt-4", tpm=300_000, rpm=600, smooth_requests=True
-        )
+        limiter = RateLimiter(mock_redis, "gpt-4", tpm=300_000, rpm=600, smooth_requests=True)
         assert limiter._rps_limit == 10.0  # 600 / 60
         assert limiter._smoothing_interval == 1.0
 
@@ -130,9 +128,7 @@ class TestRPSSmoothingAcquire:
         current_time = time.time()
         mock_redis.eval = AsyncMock(return_value=[current_time, 0, "test-id", 0.0])
 
-        limiter = RateLimiter(
-            mock_redis, "gpt-4", tpm=300_000, rpm=600, smooth_requests=True
-        )
+        limiter = RateLimiter(mock_redis, "gpt-4", tpm=300_000, rpm=600, smooth_requests=True)
 
         await limiter.acquire(tokens=1000)
 
