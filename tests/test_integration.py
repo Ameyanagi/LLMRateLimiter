@@ -55,7 +55,7 @@ class TestCombinedModeIntegration:
 
         result = await limiter.acquire(tokens=5000)
 
-        assert result.wait_time == 0.0
+        assert result.wait_time < 0.01  # Approximately immediate (< 10ms)
         assert result.queue_position == 0
 
     @pytest.mark.asyncio
@@ -76,15 +76,16 @@ class TestCombinedModeIntegration:
     @pytest.mark.asyncio
     async def test_rpm_limit_causes_wait(self, redis_client: Redis) -> None:
         """Exceeding RPM limit should cause wait time."""
-        config = RateLimitConfig(tpm=1_000_000, rpm=2, window_seconds=1)
+        # Disable RPS smoothing for this test since low RPM would cause long delays
+        config = RateLimitConfig(tpm=1_000_000, rpm=2, window_seconds=1, smooth_requests=False)
         limiter = RateLimiter(redis_client, "test-model-rpm", config)
 
         # First two should be immediate
         result1 = await limiter.acquire(tokens=100)
         result2 = await limiter.acquire(tokens=100)
 
-        assert result1.wait_time == 0.0
-        assert result2.wait_time == 0.0
+        assert result1.wait_time < 0.01  # Approximately immediate (< 10ms)
+        assert result2.wait_time < 0.01  # Approximately immediate (< 10ms)
 
         # Third should be queued
         limiter._should_wait = False
@@ -123,7 +124,7 @@ class TestCombinedModeIntegration:
         # Should be immediate now
         result = await limiter.acquire(tokens=9000)
 
-        assert result.wait_time == 0.0
+        assert result.wait_time < 0.01  # Approximately immediate (< 10ms)
 
     @pytest.mark.asyncio
     async def test_fifo_ordering(self, redis_client: Redis) -> None:
@@ -163,7 +164,7 @@ class TestSplitModeIntegration:
 
         result = await limiter.acquire(input_tokens=10000, output_tokens=5000)
 
-        assert result.wait_time == 0.0
+        assert result.wait_time < 0.01  # Approximately immediate (< 10ms)
         assert result.queue_position == 0
 
     @pytest.mark.asyncio
@@ -227,7 +228,7 @@ class TestMixedModeIntegration:
 
         # This uses 5K input + 2K output = 7K combined (under all limits)
         result = await limiter.acquire(input_tokens=5000, output_tokens=2000)
-        assert result.wait_time == 0.0
+        assert result.wait_time < 0.01  # Approximately immediate (< 10ms)
 
     @pytest.mark.asyncio
     async def test_mixed_mode_combined_limit_triggers_wait(self, redis_client: Redis) -> None:
@@ -335,7 +336,7 @@ class TestDisabledLimits:
         # Should all be immediate even with many requests
         for _ in range(10):
             result = await limiter.acquire(tokens=100)
-            assert result.wait_time == 0.0
+            assert result.wait_time < 0.01  # Approximately immediate (< 10ms)
 
 
 class TestConcurrentRequests:
@@ -430,7 +431,7 @@ class TestConnectionManagerIntegration:
 
         result = await limiter.acquire(tokens=5000)
 
-        assert result.wait_time == 0.0
+        assert result.wait_time < 0.01  # Approximately immediate (< 10ms)
         assert result.queue_position == 0
 
     @pytest.mark.asyncio
@@ -451,8 +452,8 @@ class TestConnectionManagerIntegration:
         result1 = await limiter1.acquire(tokens=5000)
         result2 = await limiter2.acquire(input_tokens=10000, output_tokens=5000)
 
-        assert result1.wait_time == 0.0
-        assert result2.wait_time == 0.0
+        assert result1.wait_time < 0.01  # Approximately immediate (< 10ms)
+        assert result2.wait_time < 0.01  # Approximately immediate (< 10ms)
 
         # Both should use the same Redis client
         assert limiter1.redis is limiter2.redis
@@ -473,4 +474,4 @@ class TestConnectionManagerIntegration:
             limiter = RateLimiter(manager, "context-test", config)
 
             result = await limiter.acquire(tokens=1000)
-            assert result.wait_time == 0.0
+            assert result.wait_time < 0.01  # Approximately immediate (< 10ms)

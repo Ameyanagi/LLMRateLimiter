@@ -395,11 +395,16 @@ class RateLimiter:
                 self._rps_limit,  # RPS limit (0 = disabled)
                 self._smoothing_interval,  # smoothing interval in seconds
             )
+            # Lua returns floats as strings to preserve precision (RESP2 truncates floats)
+            # Handle both bytes and str types from Redis
+            slot_time_val = result[0].decode() if isinstance(result[0], bytes) else result[0]
+            wait_time_val = result[3].decode() if isinstance(result[3], bytes) else result[3]
+            record_id_val = result[2].decode() if isinstance(result[2], bytes) else result[2]
             return (
-                float(result[0]),
+                float(slot_time_val),
                 int(result[1]),
-                str(result[2]),
-                float(result[3]),
+                str(record_id_val),
+                float(wait_time_val),
             )
 
         try:

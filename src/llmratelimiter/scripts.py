@@ -98,7 +98,9 @@ end
 local your_slot_time = last_slot_time + epsilon
 
 -- STEP 4.5: RPS smoothing - enforce minimum interval between requests
-if rps_limit > 0 and smoothing_interval > 0 then
+-- Only apply when there are existing requests in the window
+-- (first request should be immediate, subsequent requests are spaced)
+if rps_limit > 0 and smoothing_interval > 0 and current_requests > 0 then
     local min_interval = smoothing_interval / rps_limit
     local min_slot_time = last_slot_time + min_interval
     your_slot_time = math.max(your_slot_time, min_slot_time)
@@ -152,11 +154,13 @@ redis.call('ZADD', consumption_key, your_slot_time, record)
 redis.call('EXPIRE', consumption_key, window_seconds * 2)
 
 -- STEP 7: Return results
+-- Note: Return floats as strings to preserve precision across Redis RESP2 protocol
+-- (RESP2 truncates Lua floats to integers when returning to client)
 local queue_position = current_requests
 local wait_time = your_slot_time - current_time
 if wait_time < 0 then wait_time = 0 end
 
-return {your_slot_time, queue_position, record_id, wait_time}
+return {tostring(your_slot_time), queue_position, record_id, tostring(wait_time)}
 """
 
 # Adjust script - updates output tokens for a record (split TPM only)

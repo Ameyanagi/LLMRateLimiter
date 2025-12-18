@@ -103,7 +103,8 @@ class RateLimitConfig:
         """Validate configuration values."""
         if self.burndown_rate < 0:
             raise ValueError("burndown_rate must be >= 0")
-        if self.rps < 0:
+        # Handle rps=None by treating it as 0 (disabled), and validate it's not negative
+        if self.rps is not None and self.rps < 0:
             raise ValueError("rps must be >= 0")
         if self.smoothing_interval <= 0:
             raise ValueError("smoothing_interval must be > 0")
@@ -126,7 +127,9 @@ class RateLimitConfig:
         - smooth_requests=True (auto-calculate RPS from RPM)
         - rps > 0 (explicit RPS, auto-enables smoothing)
         """
-        return self.rps > 0 or self.smooth_requests
+        # Handle rps=None as 0 (disabled)
+        rps_val = self.rps if self.rps is not None else 0
+        return rps_val > 0 or self.smooth_requests
 
     @property
     def effective_rps(self) -> float:
@@ -135,8 +138,10 @@ class RateLimitConfig:
         Returns:
             Explicit rps if set, otherwise rpm/60 if smoothing enabled, else 0.
         """
-        if self.rps > 0:
-            return float(self.rps)
+        # Handle rps=None as 0 (disabled)
+        rps_val = self.rps if self.rps is not None else 0
+        if rps_val > 0:
+            return float(rps_val)
         if self.smooth_requests and self.rpm > 0:
             return self.rpm / 60.0
         return 0.0
