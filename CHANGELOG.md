@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2025-12-18
+
+### Fixed
+
+- Fix RESP2 float truncation: Return floats as strings from Lua script to preserve precision when returning wait_time and slot_time values.
+- Fix first request delay: Only apply RPS smoothing when there are existing requests in the window (first request is now immediate).
+- Fix `rps=None` TypeError: Handle None values in `RateLimitConfig` validation and properties.
+- Update integration tests to use approximate comparison for wait_time to account for epsilon FIFO spacing.
+
+## [0.3.1] - 2025-12-18
+
+### Fixed
+
+- Bug fixes for RPS smoothing and `rps=None` handling.
+
+## [0.3.0] - 2025-12-17
+
+### Added
+
+- **RPS Smoothing**: New feature to prevent burst-triggered 429 errors with Azure OpenAI and other providers that enforce rate limits at sub-second intervals.
+  - `smooth_requests`: Enable auto-calculated RPS from RPM (default: `True`)
+  - `rps`: Explicit RPS limit (auto-enables smoothing)
+  - `smoothing_interval`: Evaluation window in seconds (default: `1.0`)
+
+### Changed
+
+- `smooth_requests` now defaults to `True` to prevent burst issues by default.
+
 ## [0.2.0] - 2025-12-07
 
 ### Added
